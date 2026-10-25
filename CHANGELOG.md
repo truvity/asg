@@ -3,6 +3,10 @@
 Entries are written for someone deciding whether to bump: what changed for
 them, and for anything breaking, what to do.
 
+## v0.4.1
+
+- **Fix: `front` target groups have a name that fits.** A target group was autonamed from its logical name (`<component>-<listener>`) plus Pulumi's 8 characters, which passes 32, the AWS limit, as soon as the two names are longer than 24 together; the first real preview refused it ("plus 7 random chars is longer than maximum length 32"). The name is now the listener's name cut to 24 characters, `-`, and 7 hex digits of the sha256 of the protocol, the target port and the VPC, so it still changes with everything that replaces a target group. No target group was ever created by v0.3.0 or v0.4.0; the `front` goldens gain the `name` input.
+
 ## v0.4.0
 
 What a builder box with a local cache needs. Nothing changes for a consumer that sets none of the new fields: the existing resource sets and policies are byte for byte the same; the watchdog's script gains one check, so a box with the watchdog gets a new launch template version.

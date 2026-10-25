@@ -619,3 +619,38 @@ func TestSharedNLBArgsAreChecked(t *testing.T) {
 		}
 	}
 }
+
+// A target group name fits AWS's 32 characters whatever the listener name,
+// and moves with what replaces the group.
+func TestTargetGroupNamesFitAndMove(t *testing.T) {
+	names := func(l front.Listener) string {
+		rec := mustRun(t, func(ctx *pulumi.Context) error {
+			_, err := front.Attach(ctx, "a-long-component-name", sharedData(), []front.Listener{l})
+
+			return err
+		})
+
+		for _, x := range rec.all {
+			if x["type"] == "aws:lb/targetGroup:TargetGroup" {
+				return x["inputs"].(map[string]any)["name"].(string)
+			}
+		}
+
+		t.Fatal("no target group")
+
+		return ""
+	}
+
+	l := buildkit("arm64", 1235)
+	l.Name = "buildkit-arm64-with-a-long-name"
+
+	n := names(l)
+	if len(n) > 32 || !strings.HasPrefix(n, "buildkit-arm64-with-a-lo-") {
+		t.Errorf("name %q", n)
+	}
+
+	l.TargetPort = 4321
+	if names(l) == n {
+		t.Error("a new target port keeps the name; the replacement could not be created beside the old group")
+	}
+}
