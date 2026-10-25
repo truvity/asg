@@ -1,76 +1,47 @@
 package asg
 
 import (
-	"errors"
-	"fmt"
 	"sort"
 
-	"github.com/truvity/asg/bootstrap"
+	"github.com/truvity/asg/module"
 )
 
-// Module is an optional piece of an appliance that touches several layers at
-// once: the user-data (sshd with user certificates, self-registering DNS,
-// journald, swap), the role and the network. A module returns plain data; it
-// never creates a resource, so the logical names of the appliance are the
-// same with and without it.
-type Module interface {
-	// Name identifies the module in errors.
-	Name() string
-	// Contribute returns what the module adds.
-	Contribute() (Contribution, error)
-}
-
-// Contribution is what modules add to an appliance.
-type Contribution struct {
-	// Fragments go into the bootstrap plan (see [Contribution.AddTo]).
-	Fragments []bootstrap.Fragment
-	// Statements are added to the role's policy.
-	Statements []Statement
-	// SSMParameters and ObjectKeys are readable by the role.
-	SSMParameters []string
-	ObjectKeys    []string
-	// Ingress rules are added to the security group.
-	Ingress []Rule
-	// ManagedPolicyARNs are attached to the role.
-	ManagedPolicyARNs []string
-}
+// Module, Contribution and Collect are the extension mechanism, defined in the
+// Pulumi-free package [module]. They are re-exported here so a caller needs
+// one import.
+type (
+	// Module is an optional piece of an appliance; see [module.Module].
+	Module = module.Module
+	// Contribution is what modules add; see [module.Contribution].
+	Contribution = module.Contribution
+	// Step is an in-service step; see [module.Step].
+	Step = module.Step
+	// ReadyCheck gates the launch hook; see [module.ReadyCheck].
+	ReadyCheck = module.ReadyCheck
+	// WatchCheck is a watchdog check; see [module.WatchCheck].
+	WatchCheck = module.WatchCheck
+)
 
 // Collect merges the modules' contributions in the order given.
-func Collect(mods ...Module) (Contribution, error) {
-	var (
-		out  Contribution
-		errs []error
-	)
+func Collect(mods ...Module) (Contribution, error) { return module.Collect(mods...) }
 
-	for _, m := range mods {
-		if m == nil {
-			errs = append(errs, errors.New("nil module"))
+// ingressRules converts the modules' ingress rules to the appliance's.
+func ingressRules(in []module.Rule) []Rule {
+	out := make([]Rule, len(in))
 
-			continue
+	for i := range in {
+		r := &in[i]
+		out[i] = Rule{
+			Description: r.Description, Protocol: r.Protocol, FromPort: r.FromPort, ToPort: r.ToPort,
+			CIDRs: r.CIDRs, IPv6CIDRs: r.IPv6CIDRs, World: r.World,
 		}
 
-		c, err := m.Contribute()
-		if err != nil {
-			errs = append(errs, fmt.Errorf("module %q: %w", m.Name(), err))
-
-			continue
+		for _, g := range r.SourceGroupIDs {
+			out[i].SourceGroups = append(out[i].SourceGroups, pulumiString(g))
 		}
-
-		out.Fragments = append(out.Fragments, c.Fragments...)
-		out.Statements = append(out.Statements, c.Statements...)
-		out.SSMParameters = append(out.SSMParameters, c.SSMParameters...)
-		out.ObjectKeys = append(out.ObjectKeys, c.ObjectKeys...)
-		out.Ingress = append(out.Ingress, c.Ingress...)
-		out.ManagedPolicyARNs = append(out.ManagedPolicyARNs, c.ManagedPolicyARNs...)
 	}
 
-	return out, errors.Join(errs...)
-}
-
-// AddTo adds the fragments to the plan and records the SSM parameters, so
-// call it before rendering.
-func (c Contribution) AddTo(p *bootstrap.Plan) error {
-	return errors.Join(p.Add(c.Fragments...), p.AddSSMParameters(c.SSMParameters...))
+	return out
 }
 
 // sortedUnique returns the distinct strings, sorted.

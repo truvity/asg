@@ -1,0 +1,486 @@
+#cloud-config
+write_files:
+  - path: /etc/asg/self-register.conf
+    owner: root:root
+    permissions: "0644"
+    content: |
+      # Rendered by github.com/truvity/asg/modules/selfregister. No secret.
+      DNS_ROLE_ARN='arn:@PARTITION@:iam::@ACCOUNT@:role/dns-register'
+      DNS_ZONE_ID='Z0EXAMPLE12345'
+      DNS_RECORD='box.example.test'
+      DNS_TTL=60
+  - path: /etc/asg/watchdog.conf
+    owner: root:root
+    permissions: "0644"
+    content: |
+      # Rendered by github.com/truvity/asg/modules/watchdog. No secret.
+      FAIL_SECONDS=300
+      RESTART_ATTEMPTS=0
+      RESTART_UNITS=()
+  - path: /etc/box/params.sh
+    owner: root:root
+    permissions: "0644"
+    content: |
+      BUCKET='acme-status-replica'
+  - path: /etc/systemd/system/asg-in-service.service
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Start this instance's services when it goes in service
+      After=network-online.target bootstrap-secrets.service
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      TimeoutStartSec=900
+      ExecStart=/usr/local/lib/asg/lifecycle.sh
+
+      [Install]
+      WantedBy=multi-user.target
+  - path: /etc/systemd/system/asg-self-register.service
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Point a DNS record at this instance
+      After=network-online.target bootstrap-ready.service
+
+      [Service]
+      Type=oneshot
+      TimeoutStartSec=120
+      ExecStart=/usr/local/lib/asg/self-register.sh
+  - path: /etc/systemd/system/asg-watchdog.service
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Local health check; marks the instance Unhealthy when it fails for too long
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/lib/asg/watchdog.sh
+  - path: /etc/systemd/system/asg-watchdog.timer
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Local health check, every 60 seconds
+
+      [Timer]
+      OnBootSec=120s
+      OnUnitActiveSec=60s
+      AccuracySec=1s
+  - path: /etc/systemd/system/bootstrap-ready.service
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Tell the Auto Scaling group this instance is ready
+      Wants=asg-in-service.service
+      After=network-online.target asg-in-service.service
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/usr/local/lib/bootstrap/ready.sh
+
+      [Install]
+      WantedBy=multi-user.target
+  - path: /etc/systemd/system/cloudflared.service
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [Service]
+      ExecStart=/usr/local/bin/cloudflared --no-autoupdate tunnel run
+  - path: /etc/systemd/system/cloudflared.service.d/10-bootstrap.conf
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [Service]
+      Environment=TUNNEL_METRICS=127.0.0.1:20241
+  - path: /opt/asg/ssh/setup.sh
+    owner: root:root
+    permissions: "0700"
+    content: |
+      #!/bin/bash
+      # Rendered by github.com/truvity/asg/modules/ssh. Every step is fail-safe.
+      dnf install -y opkssh || echo "asg ssh: package install failed"
+      # Host key: restore the one fixed key from SSM before sshd is restarted. Fail-safe.
+      (
+        set -euo pipefail
+        umask 077
+        tok="$(curl -sf -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' http://169.254.169.254/latest/api/token)"
+        region="$(curl -sf -H "X-aws-ec2-metadata-token: $tok" http://169.254.169.254/latest/meta-data/placement/region)"
+        tmp="$(mktemp -d)"
+        trap 'rm -rf "$tmp"' EXIT
+        aws ssm get-parameter --name /acme/status/ssh-host-key --with-decryption --query Parameter.Value --output text --region "$region" >"$tmp/key"
+        ssh-keygen -y -f "$tmp/key" >"$tmp/key.pub"
+        install -m 0600 -o root -g root "$tmp/key" /etc/ssh/ssh_host_ed25519_key
+        install -m 0644 -o root -g root "$tmp/key.pub" /etc/ssh/ssh_host_ed25519_key.pub
+        printf 'HostKey /etc/ssh/ssh_host_ed25519_key\n' >/etc/ssh/sshd_config.d/05-asg-hostkey.conf
+        if sshd -t; then systemctl restart sshd; else rm -f /etc/ssh/sshd_config.d/05-asg-hostkey.conf; exit 1; fi
+      ) || echo "asg ssh: host key restore failed; sshd keeps its generated key"
+      # Key exchange: prefer the standardised ML-KEM hybrid, then the sntrup hybrid, then sshd's defaults. Fail-safe.
+      (
+        set -euo pipefail
+        printf 'KexAlgorithms ^mlkem768x25519-sha256,sntrup761x25519-sha512@openssh.com\n' >/etc/ssh/sshd_config.d/06-asg-kex.conf
+        if sshd -t; then systemctl restart sshd; else rm -f /etc/ssh/sshd_config.d/06-asg-kex.conf; exit 1; fi
+      ) || { rm -f /etc/ssh/sshd_config.d/06-asg-kex.conf; echo "asg ssh: post-quantum key exchange not enabled; sshd keeps its defaults"; }
+      echo configure
+  - path: /usr/local/lib/asg/in-service.d/00-tunnel.sh
+    owner: root:root
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      # in-service step: tunnel
+      echo load-token
+      systemctl start cloudflared.service
+  - path: /usr/local/lib/asg/in-service.d/01-self-register.sh
+    owner: root:root
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      # in-service step: self-register
+      systemctl start --no-block asg-self-register.service
+  - path: /usr/local/lib/asg/in-service.d/02-watchdog.sh
+    owner: root:root
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      # in-service step: watchdog
+      systemctl start asg-watchdog.timer
+  - path: /usr/local/lib/asg/lifecycle.sh
+    owner: root:root
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      # Generated by github.com/truvity/asg/module. Run by asg-in-service.service on
+      # every boot: in the warm pool it does nothing; on a boot into service it runs
+      # in-service.d, then the ready.d checks. Any failure exits non-zero, so the
+      # bootstrap-ready service abandons the launch instead of completing it.
+      set -euo pipefail
+
+      LIB="${ASG_LIB:-/usr/local/lib/asg}"
+
+      log() { printf '%s asg-in-service: %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*" >&2; }
+
+      imds() {
+        local t
+        t="$(curl -fsS --connect-timeout 5 -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 300' http://169.254.169.254/latest/api/token)" || return 1
+        curl -fsS --connect-timeout 5 -H "X-aws-ec2-metadata-token: $t" "http://169.254.169.254/latest/meta-data/$1"
+      }
+
+      # An empty answer (no such path) means the instance is not in a group at all,
+      # which a cold start under test is: treat it as going in service.
+      state="$(imds autoscaling/target-lifecycle-state 2>/dev/null || true)"
+      case "$state" in
+        Warmed:*)
+          log "target lifecycle state '$state': parked, nothing to start"
+          exit 0
+          ;;
+        InService | "") ;;
+        *)
+          log "target lifecycle state '$state': nothing to do"
+          exit 0
+          ;;
+      esac
+
+      for f in "$LIB"/in-service.d/*; do
+        [ -e "$f" ] || continue
+        log "step $(basename "$f")"
+        bash -e "$f"
+      done
+
+      for f in "$LIB"/ready.d/*; do
+        [ -e "$f" ] || continue
+        limit="$(sed -n 's/^# asg-timeout=//p' "$f" | head -n 1)"
+        deadline=$((SECONDS + ${limit:-120}))
+        until bash "$f" >/dev/null 2>&1; do
+          if [ "$SECONDS" -ge "$deadline" ]; then
+            log "ready check $(basename "$f") did not pass in time"
+            exit 1
+          fi
+          sleep 2
+        done
+        log "ready check $(basename "$f") passed"
+      done
+  - path: /usr/local/lib/asg/ready.d/00-tunnel.sh
+    owner: root:root
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      # asg-timeout=120
+      # ready check: tunnel
+      curl -fsS -m 3 -o /dev/null http://127.0.0.1:20241/ready
+  - path: /usr/local/lib/asg/self-register.sh
+    owner: root:root
+    permissions: "0755"
+    content: |
+      #!/usr/bin/env bash
+      # asg-self-register: points a DNS A record at this instance's private IP.
+      #
+      # It is run by asg-self-register.service, started on a boot into service and
+      # ordered after bootstrap-ready.service, that is AFTER the Auto Scaling
+      # lifecycle hook was completed, so it can never delay or prevent InService.
+      # It is fail-safe: every failure is logged and the script exits 0. It does
+      # nothing unless the instance's target lifecycle state is InService.
+      #
+      # It reads the private IP from IMDSv2, assumes the cross-account role named in
+      # /etc/asg/self-register.conf (DNS_ROLE_ARN) and UPSERTs the A record
+      # DNS_RECORD in the hosted zone DNS_ZONE_ID with TTL DNS_TTL. The role is
+      # limited to that one record name. Nothing secret is written to disk or to the
+      # log: the temporary credentials live in this process's environment only.
+      # Generated by github.com/truvity/asg/modules/selfregister.
+      set -uo pipefail
+
+      CONF="${ASG_SELF_REGISTER_CONF:-/etc/asg/self-register.conf}"
+      ATTEMPTS=3
+
+      log() { printf '%s asg-self-register: %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*" >&2; }
+
+      imds_token() {
+        curl -fsS -m 5 -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 300"
+      }
+
+      imds() {
+        curl -fsS -m 5 -H "X-aws-ec2-metadata-token: $(imds_token)" "http://169.254.169.254/latest/$1"
+      }
+
+      # register_once prints nothing on success and returns non-zero on any failure.
+      register_once() {
+        local ip="$1" region creds ak sk st batch
+        region="$(imds meta-data/placement/region)" || return 1
+        creds="$(AWS_REGION="$region" aws sts assume-role \
+          --role-arn "$DNS_ROLE_ARN" \
+          --role-session-name asg-self-register \
+          --duration-seconds 900 \
+          --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' \
+          --output text)" || return 1
+        read -r ak sk st <<<"$creds"
+        [ -n "$ak" ] && [ -n "$sk" ] && [ -n "$st" ] || return 1
+        batch="{\"Comment\":\"asg self-register\",\"Changes\":[{\"Action\":\"UPSERT\","
+        batch+="\"ResourceRecordSet\":{\"Name\":\"$DNS_RECORD\",\"Type\":\"A\",\"TTL\":$DNS_TTL,\"ResourceRecords\":[{\"Value\":\"$ip\"}]}}]}"
+        AWS_REGION="$region" AWS_ACCESS_KEY_ID="$ak" AWS_SECRET_ACCESS_KEY="$sk" AWS_SESSION_TOKEN="$st" \
+          aws route53 change-resource-record-sets \
+          --hosted-zone-id "$DNS_ZONE_ID" \
+          --change-batch "$batch" \
+          --query 'ChangeInfo.Id' --output text >/dev/null
+      }
+
+      main() {
+        local state ip n
+        # shellcheck disable=SC1090
+        . "$CONF" || { log "no configuration; nothing to do"; return 0; }
+        if [ -z "${DNS_ROLE_ARN:-}" ] || [ -z "${DNS_ZONE_ID:-}" ] || [ -z "${DNS_RECORD:-}" ]; then
+          log "not configured; nothing to do"
+          return 0
+        fi
+        DNS_TTL="${DNS_TTL:-60}"
+
+        state="$(imds meta-data/autoscaling/target-lifecycle-state 2>/dev/null || true)"
+        if [ "$state" != "InService" ]; then
+          log "target lifecycle state '${state:-none}', not InService; not registering"
+          return 0
+        fi
+
+        ip="$(imds meta-data/local-ipv4)" || { log "cannot read the private IP from IMDS"; return 0; }
+        if ! [[ "$ip" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
+          log "IMDS returned something that is not an IPv4 address; not registering"
+          return 0
+        fi
+
+        for n in $(seq 1 "$ATTEMPTS"); do
+          if register_once "$ip"; then
+            log "registered $DNS_RECORD -> $ip (ttl $DNS_TTL)"
+            return 0
+          fi
+          log "attempt $n/$ATTEMPTS failed"
+          [ "$n" = "$ATTEMPTS" ] || sleep 5
+        done
+        log "giving up after $ATTEMPTS attempts; $DNS_RECORD is unchanged"
+        return 0
+      }
+
+      # Sourced for a test (ASG_SOURCE_ONLY=1) the functions are defined and nothing
+      # runs.
+      if [ -z "${ASG_SOURCE_ONLY:-}" ]; then
+        main "$@"
+      fi
+  - path: /usr/local/lib/asg/watch.d/00-box.sh
+    owner: root:root
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      # watch check: box
+      curl -fsS http://127.0.0.1:8080/health >/dev/null
+  - path: /usr/local/lib/asg/watch.d/01-tunnel.sh
+    owner: root:root
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      # watch check: tunnel
+      curl -fsS -m 3 -o /dev/null http://127.0.0.1:20241/ready
+  - path: /usr/local/lib/asg/watchdog.sh
+    owner: root:root
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      # asg-watchdog: runs every check in watch.d; once they have been failing for
+      # FAIL_SECONDS it restarts RESTART_UNITS (up to RESTART_ATTEMPTS times), then
+      # asks the Auto Scaling group to replace this instance. It is the only
+      # recovery a stateless box has: Restart=always in the units handles the quick
+      # failures before that. Generated by github.com/truvity/asg/modules/watchdog.
+      set -uo pipefail
+
+      LIB="${ASG_LIB:-/usr/local/lib/asg}"
+      STATE="${ASG_WATCHDOG_STATE:-/run/asg-watchdog}"
+
+      # shellcheck disable=SC1090
+      . "${ASG_WATCHDOG_CONF:-/etc/asg/watchdog.conf}"
+
+      log() { printf '%s asg-watchdog: %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*" >&2; }
+
+      imds() {
+        local t
+        t="$(curl -fsS -m 5 -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 300' http://169.254.169.254/latest/api/token)" || return 1
+        curl -fsS -m 5 -H "X-aws-ec2-metadata-token: $t" "http://169.254.169.254/latest/meta-data/$1"
+      }
+
+      ok=1
+      for f in "$LIB"/watch.d/*; do
+        [ -e "$f" ] || continue
+        bash "$f" >/dev/null 2>&1 || { log "check $(basename "$f") failed"; ok=0; }
+      done
+
+      mkdir -p "$STATE"
+      if [ "$ok" = 1 ]; then
+        rm -f "$STATE/unhealthy-since" "$STATE/restarts"
+        exit 0
+      fi
+
+      now="$(date +%s)"
+      [ -f "$STATE/unhealthy-since" ] || echo "$now" >"$STATE/unhealthy-since"
+      since="$(cat "$STATE/unhealthy-since")"
+      log "failing since $since"
+      [ $((now - since)) -ge "$FAIL_SECONDS" ] || exit 0
+
+      restarts="$(cat "$STATE/restarts" 2>/dev/null || echo 0)"
+      if [ "$restarts" -lt "$RESTART_ATTEMPTS" ] && [ "${#RESTART_UNITS[@]}" -gt 0 ]; then
+        restarts=$((restarts + 1))
+        echo "$restarts" >"$STATE/restarts"
+        echo "$now" >"$STATE/unhealthy-since"
+        log "restarting ${RESTART_UNITS[*]} (attempt $restarts of $RESTART_ATTEMPTS)"
+        systemctl restart "${RESTART_UNITS[@]}" || log "restart failed"
+        exit 0
+      fi
+
+      iid="$(imds instance-id)"
+      region="$(imds placement/region)"
+      log "failing for over $((FAIL_SECONDS / 60)) minutes; marking $iid Unhealthy"
+      aws autoscaling set-instance-health --instance-id "$iid" --health-status Unhealthy --region "$region" || log "set-instance-health failed"
+  - path: /usr/local/lib/bootstrap/ready.sh
+    owner: root:root
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      # Generated by github.com/truvity/asg/bootstrap; run by bootstrap-ready.service on every boot.
+      set -e
+      imds() {
+        local t
+        t="$(curl -fsS --connect-timeout 5 -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 300' http://169.254.169.254/latest/api/token)" || return 1
+        curl -fsS --connect-timeout 5 -H "X-aws-ec2-metadata-token: $t" "http://169.254.169.254/latest/meta-data/$1"
+      }
+      bs_die() {
+        echo "bootstrap: $1" >&2
+        exit 1
+      }
+      export -f imds bs_die
+      bs_abort() {
+        echo "bootstrap: $1" >&2
+        if ! aws autoscaling complete-lifecycle-action --region "$(imds placement/region)" \
+          --auto-scaling-group-name 'box-status' --lifecycle-hook-name 'box-status-launch' \
+          --lifecycle-action-result ABANDON --instance-id "$(imds instance-id)" >/dev/null 2>&1; then
+          aws autoscaling set-instance-health --region "$(imds placement/region)" \
+            --instance-id "$(imds instance-id)" --health-status Unhealthy >/dev/null 2>&1 || true
+        fi
+        exit 1
+      }
+      systemctl is-active --quiet 'asg-in-service.service' || bs_abort 'asg-in-service.service is not active'
+      for i in 1 2 3; do
+        if out="$(aws autoscaling complete-lifecycle-action --region "$(imds placement/region)" \
+          --auto-scaling-group-name 'box-status' --lifecycle-hook-name 'box-status-launch' \
+          --lifecycle-action-result CONTINUE --instance-id "$(imds instance-id)" 2>&1)"; then
+          exit 0
+        fi
+        echo "bootstrap: CONTINUE attempt $i: $out" >&2
+        sleep $((i * 3))
+      done
+      echo "bootstrap: no CONTINUE sent; if an action was pending, the hook's DefaultResult applies" >&2
+      exit 0
+runcmd:
+  - set -e
+  - - bash
+    - -ec
+    - |
+      # fetch objects
+      imds() {
+        local t
+        t="$(curl -fsS --connect-timeout 5 -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 300' http://169.254.169.254/latest/api/token)" || return 1
+        curl -fsS --connect-timeout 5 -H "X-aws-ec2-metadata-token: $t" "http://169.254.169.254/latest/meta-data/$1"
+      }
+      bs_die() {
+        echo "bootstrap: $1" >&2
+        aws autoscaling complete-lifecycle-action --region "$(imds placement/region)" \
+          --auto-scaling-group-name 'box-status' --lifecycle-hook-name 'box-status-launch' \
+          --lifecycle-action-result ABANDON --instance-id "$(imds instance-id)" >/dev/null 2>&1 || true
+        exit 1
+      }
+      bucket='acme-status-replica'
+      region="$(imds placement/region)" || bs_die "no region from the instance metadata"
+      bs_fetch() {
+        local key="$1" sum="$2" dest="$3" mode="$4" owner="$5" tmp i
+        tmp="$(mktemp)" || return 1
+        for i in 1 2 3 4 5; do
+          if aws s3 cp --only-show-errors --region "$region" "s3://$bucket/$key" "$tmp" \
+            && printf '%s  %s\n' "$sum" "$tmp" | sha256sum -c - >/dev/null 2>&1; then
+            install -D -m "$mode" "$tmp" "$dest" && chown "$owner" "$dest" && rm -f "$tmp" && return 0
+            break
+          fi
+          sleep 3
+        done
+        rm -f "$tmp"
+        return 1
+      }
+      bs_fetch 'box/config/8854bbd810e74b880ecf8aab8532bd9190fb6b1f6433397d07393504b5f59367.sh' '8854bbd810e74b880ecf8aab8532bd9190fb6b1f6433397d07393504b5f59367' '/usr/local/sbin/box-setup.sh' 0755 'root:root' || bs_die 'cannot fetch /usr/local/sbin/box-setup.sh'
+  - - bash
+    - -ec
+    - |
+      # tunnel install
+      echo install-cloudflared
+  - - bash
+    - -ec
+    - |
+      # systemd daemon-reload
+      systemctl daemon-reload
+  - - bash
+    - -ec
+    - |
+      # ssh setup
+      timeout 600 bash /opt/asg/ssh/setup.sh || echo "asg ssh: setup did not finish; continuing without SSH"
+  - - bash
+    - -ec
+    - |
+      # box install
+      /usr/local/sbin/box-setup.sh install
+  - - bash
+    - -ec
+    - |
+      # systemd units
+      systemctl enable 'asg-in-service.service'
+  - - bash
+    - -ec
+    - |
+      # report ready
+      systemctl enable --now bootstrap-ready.service

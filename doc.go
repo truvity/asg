@@ -42,9 +42,18 @@
 //
 // # Extension points
 //
-// A [Module] contributes bootstrap fragments, IAM statements, SSM parameters
-// and security group rules in one piece (sshd user certificates,
-// self-registering DNS, journald, swap are such modules). [Collect] merges
-// modules into a [Contribution] that [Args.Contribution] takes and that
-// [Contribution.AddTo] feeds to the plan. No module ships in this package.
+// A [Module] contributes bootstrap fragments, IAM statements, SSM parameters,
+// security group rules, and the steps and checks of the on-box lifecycle in
+// one piece. [Collect] merges modules into a [Contribution] that
+// [Args.Contribution] takes and that [Contribution.AddTo] feeds to the plan.
+// The Pulumi-free package module defines the types and modules/ ships four:
+// watchdog, ssh, selfregister and tunnel.
+//
+// # The on-box lifecycle
+//
+// A step that must run only when the instance goes in service (start a
+// daemon, read a secret) is a [Step]; a check that must pass before the launch
+// hook is completed is a [ReadyCheck]. The library writes them as files and
+// runs them from one oneshot unit that does nothing in the warm pool, and
+// bootstrap-ready.service completes the hook only if that unit succeeded.
 package asg

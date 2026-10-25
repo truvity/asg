@@ -9,6 +9,14 @@ replaced rather than repaired.
   ABANDON (an instance that never finished booting is replaced, not put in
   service half configured), an IAM role and instance profile with the least
   privilege the user-data needs, and a security group.
+- **`module`** and **`modules/`** are the extension mechanism: a module
+  returns data (user-data fragments, IAM statements, SSM parameter names,
+  ingress rules, the steps and checks of the on-box lifecycle) and never a
+  resource, so turning one on changes the launch template and the policy, not
+  the set of resources. Shipped: `watchdog` (replace an instance whose local
+  checks keep failing), `ssh` (opkssh and a fixed host key), `selfregister`
+  (a DNS record for the in-service instance) and `tunnel` (a Cloudflare
+  tunnel connector that starts only in service).
 - **`bootstrap`** composes the user-data from fragments: systemd units,
   files, the secrets an instance reads at boot (SSM parameters and S3
   objects, by exact name) and the readiness step that completes the
@@ -54,7 +62,7 @@ import (
 
 Build a `bootstrap.Plan`, render it, and pass the result to `asg.New` with
 the group, instance, IAM and network arguments. The package documentation
-and `statusbox_test.go` show a complete box. `Compat` lets an existing group
+and `composed_test.go` show a complete box made of a plan and modules. `Compat` lets an existing group
 move onto this library without Pulumi replacing anything: it keeps the
 component type, the logical names and the layout the group was created with.
 
@@ -85,7 +93,9 @@ over tracked files and runs in the gate, with no exception.
 
 `v0.x`: the API may change in a minor release, and every change is in the
 [CHANGELOG](CHANGELOG.md). v0.1.0 is the code that was `pkg/appliance` and
-`pkg/bootstrap` in truvity/aws-structure, moved without a behaviour change.
+`pkg/bootstrap` in truvity/aws-structure, moved without a behaviour change;
+v0.2.0 adds the `module` package and the four modules above, and changes two
+defaults (see the CHANGELOG).
 
 ## Development
 

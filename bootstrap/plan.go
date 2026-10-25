@@ -189,6 +189,10 @@ func (p *Plan) Add(frags ...Fragment) error {
 	return errors.Join(errs...)
 }
 
+// HasLifecycle reports whether Options.Lifecycle is set, that is whether the
+// rendered plan completes the launch lifecycle hook with a ready service.
+func (p *Plan) HasLifecycle() bool { return p.opts.Lifecycle != nil }
+
 // AddItems adds items directly, as a fragment named "plan".
 func (p *Plan) AddItems(items ...Item) error { return p.Add(Compose("plan", items...)) }
 

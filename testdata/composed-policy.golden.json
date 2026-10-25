@@ -1,0 +1,61 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadParameters",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:GetParameter"
+      ],
+      "Resource": [
+        "arn:@PARTITION@:ssm:eu-west-1:@ACCOUNT@:parameter/acme/status/gatus-env",
+        "arn:@PARTITION@:ssm:eu-west-1:@ACCOUNT@:parameter/acme/status/ssh-host-key",
+        "arn:@PARTITION@:ssm:eu-west-1:@ACCOUNT@:parameter/acme/status/tunnel-token"
+      ]
+    },
+    {
+      "Sid": "ReadObjects",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject"
+      ],
+      "Resource": [
+        "arn:@PARTITION@:s3:::acme-status-replica/box/config/<sha256>.sh",
+        "arn:@PARTITION@:s3:::acme-status-replica/box/config/<sha256>.yaml"
+      ]
+    },
+    {
+      "Sid": "OwnGroup",
+      "Effect": "Allow",
+      "Action": [
+        "autoscaling:CompleteLifecycleAction",
+        "autoscaling:SetInstanceHealth"
+      ],
+      "Resource": [
+        "arn:@PARTITION@:autoscaling:eu-west-1:@ACCOUNT@:autoScalingGroup:*:autoScalingGroupName/box-status"
+      ]
+    },
+    {
+      "Sid": "ReplicaObjects",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": [
+        "arn:@PARTITION@:s3:::acme-status-replica/box/*"
+      ]
+    },
+    {
+      "Sid": "SelfRegisterDNS",
+      "Effect": "Allow",
+      "Action": [
+        "sts:AssumeRole"
+      ],
+      "Resource": [
+        "arn:@PARTITION@:iam::@ACCOUNT@:role/dns-register"
+      ]
+    }
+  ]
+}
