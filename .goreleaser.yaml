@@ -1,0 +1,11 @@
+version: 2
+
+project_name: asg
+
+# A Go library: nothing to build. The release publishes the tag's GitHub
+# release and its changelog; consumers take the module through go.mod.
+builds:
+  - skip: true
+
+changelog:
+  sort: asc

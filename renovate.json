@@ -1,0 +1,30 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "github>truvity/ci-workflows"
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "The aws-cdk release whose bootstrap template pkg/cdkbootstrap vendors. A bump moves VERSION only; the pull request stays red (TestVendoredTemplateMatchesProvenance) until hack/update-cdk-bootstrap.sh has fetched the template of that release.",
+      "managerFilePatterns": [
+        "/^pkg/cdkbootstrap/template/VERSION$/"
+      ],
+      "matchStrings": [
+        "^(?<currentValue>\\d+\\.\\d+\\.\\d+)\\s*$"
+      ],
+      "depNameTemplate": "aws-cdk",
+      "datasourceTemplate": "npm"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "The bootstrap template is the stack deployed to every account that carries a bootstrap: a person reads the template diff before it merges, whatever the version step.",
+      "matchDepNames": [
+        "aws-cdk"
+      ],
+      "groupName": "aws-cdk bootstrap template",
+      "automerge": false
+    }
+  ]
+}

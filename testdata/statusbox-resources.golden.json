@@ -1,0 +1,241 @@
+[
+  {
+    "inputs": {
+      "desiredCapacity": 1,
+      "healthCheckGracePeriod": 300,
+      "healthCheckType": "EC2",
+      "initialLifecycleHooks": [
+        {
+          "defaultResult": "ABANDON",
+          "heartbeatTimeout": 900,
+          "lifecycleTransition": "autoscaling:EC2_INSTANCE_LAUNCHING",
+          "name": "statusbox-status-launch"
+        }
+      ],
+      "instanceRefresh": {
+        "preferences": {
+          "instanceWarmup": "300",
+          "minHealthyPercentage": 0
+        },
+        "strategy": "Rolling",
+        "triggers": [
+          "launch_template"
+        ]
+      },
+      "launchTemplate": {
+        "id": "status_id",
+        "version": "3"
+      },
+      "maxSize": 1,
+      "minSize": 1,
+      "name": "statusbox-status",
+      "tags": [
+        {
+          "key": "Name",
+          "propagateAtLaunch": true,
+          "value": "statusbox-status"
+        },
+        {
+          "key": "ManagedBy",
+          "propagateAtLaunch": true,
+          "value": "pulumi"
+        }
+      ],
+      "vpcZoneIdentifiers": [
+        "subnet-0a",
+        "subnet-0b"
+      ],
+      "warmPool": {
+        "maxGroupPreparedCapacity": 2,
+        "minSize": 1,
+        "poolState": "Stopped"
+      }
+    },
+    "name": "status",
+    "parent": "statusbox:ec2:Box::status",
+    "type": "aws:autoscaling/group:Group"
+  },
+  {
+    "inputs": {
+      "blockDeviceMappings": [
+        {
+          "deviceName": "/dev/xvda",
+          "ebs": {
+            "deleteOnTermination": "true",
+            "encrypted": "true",
+            "volumeSize": 8,
+            "volumeType": "gp3"
+          }
+        }
+      ],
+      "iamInstanceProfile": {
+        "arn": ""
+      },
+      "imageId": "ami-0example",
+      "instanceType": "t4g.nano",
+      "metadataOptions": {
+        "httpEndpoint": "enabled",
+        "httpPutResponseHopLimit": 1,
+        "httpTokens": "required"
+      },
+      "name": "statusbox-status",
+      "networkInterfaces": [
+        {
+          "associatePublicIpAddress": "true",
+          "deviceIndex": 0,
+          "securityGroups": [
+            "status_id"
+          ]
+        }
+      ],
+      "tagSpecifications": [
+        {
+          "resourceType": "instance",
+          "tags": {
+            "Estate": "acme",
+            "ManagedBy": "pulumi",
+            "Name": "statusbox-status"
+          }
+        },
+        {
+          "resourceType": "volume",
+          "tags": {
+            "Estate": "acme",
+            "ManagedBy": "pulumi",
+            "Name": "statusbox-status"
+          }
+        }
+      ],
+      "tags": {
+        "Estate": "acme",
+        "ManagedBy": "pulumi",
+        "Name": "statusbox-status"
+      },
+      "updateDefaultVersion": true,
+      "userData": "\u003cuser-data\u003e"
+    },
+    "name": "status",
+    "parent": "statusbox:ec2:Box::status",
+    "type": "aws:ec2/launchTemplate:LaunchTemplate"
+  },
+  {
+    "inputs": {
+      "description": "statusbox: no inbound except the private page from the listed networks",
+      "egress": [
+        {
+          "cidrBlocks": [
+            "0.0.0.0/0"
+          ],
+          "fromPort": 0,
+          "protocol": "-1",
+          "toPort": 0
+        }
+      ],
+      "ingress": [
+        {
+          "cidrBlocks": [
+            "10.20.0.0/16"
+          ],
+          "description": "the private status page, from the peered network",
+          "fromPort": 8081,
+          "protocol": "tcp",
+          "toPort": 8081
+        }
+      ],
+      "namePrefix": "statusbox-status-",
+      "tags": {
+        "Estate": "acme",
+        "ManagedBy": "pulumi",
+        "Name": "statusbox-status"
+      },
+      "vpcId": "vpc-0example"
+    },
+    "name": "status",
+    "parent": "statusbox:ec2:Box::status",
+    "type": "aws:ec2/securityGroup:SecurityGroup"
+  },
+  {
+    "inputs": {
+      "name": "statusbox-status",
+      "role": "statusbox-status",
+      "tags": {
+        "Estate": "acme",
+        "ManagedBy": "pulumi",
+        "Name": "statusbox-status"
+      }
+    },
+    "name": "status",
+    "parent": "statusbox:ec2:Box::status",
+    "type": "aws:iam/instanceProfile:InstanceProfile"
+  },
+  {
+    "inputs": {
+      "assumeRolePolicy": "{\n  \"Statement\": [\n    {\n      \"Action\": \"sts:AssumeRole\",\n      \"Effect\": \"Allow\",\n      \"Principal\": {\n        \"Service\": \"ec2.amazonaws.com\"\n      }\n    }\n  ],\n  \"Version\": \"2012-10-17\"\n}",
+      "inlinePolicies": [
+        {
+          "name": "statusbox",
+          "policy": "{\n  \"Statement\": [\n    {\n      \"Action\": [\n        \"ssm:GetParameter\"\n      ],\n      \"Effect\": \"Allow\",\n      \"Resource\": [\n        \"arn:@PARTITION@:ssm:eu-west-1:@ACCOUNT@:parameter/acme/status/alerts-read-token\",\n        \"arn:@PARTITION@:ssm:eu-west-1:@ACCOUNT@:parameter/acme/status/tunnel-token\"\n      ],\n      \"Sid\": \"ReadOwnParameters\"\n    },\n    {\n      \"Action\": [\n        \"s3:GetObject\",\n        \"s3:PutObject\",\n        \"s3:DeleteObject\"\n      ],\n      \"Effect\": \"Allow\",\n      \"Resource\": [\n        \"arn:@PARTITION@:s3:::acme-status-replica/box/*\"\n      ],\n      \"Sid\": \"ReplicaObjects\"\n    },\n    {\n      \"Action\": [\n        \"s3:ListBucket\"\n      ],\n      \"Condition\": {\n        \"StringLike\": {\n          \"s3:prefix\": [\n            \"box/*\"\n          ]\n        }\n      },\n      \"Effect\": \"Allow\",\n      \"Resource\": [\n        \"arn:@PARTITION@:s3:::acme-status-replica\"\n      ],\n      \"Sid\": \"ReplicaList\"\n    },\n    {\n      \"Action\": [\n        \"s3:GetBucketLocation\"\n      ],\n      \"Effect\": \"Allow\",\n      \"Resource\": [\n        \"arn:@PARTITION@:s3:::acme-status-replica\"\n      ],\n      \"Sid\": \"ReplicaRegion\"\n    },\n    {\n      \"Action\": [\n        \"autoscaling:CompleteLifecycleAction\",\n        \"autoscaling:SetInstanceHealth\"\n      ],\n      \"Effect\": \"Allow\",\n      \"Resource\": [\n        \"arn:@PARTITION@:autoscaling:eu-west-1:@ACCOUNT@:autoScalingGroup:*:autoScalingGroupName/statusbox-status\"\n      ],\n      \"Sid\": \"OwnGroup\"\n    }\n  ],\n  \"Version\": \"2012-10-17\"\n}"
+        }
+      ],
+      "name": "statusbox-status",
+      "permissionsBoundary": "arn:@PARTITION@:iam::@ACCOUNT@:policy/boundary",
+      "tags": {
+        "Estate": "acme",
+        "ManagedBy": "pulumi",
+        "Name": "statusbox-status"
+      }
+    },
+    "name": "status",
+    "parent": "statusbox:ec2:Box::status",
+    "type": "aws:iam/role:Role"
+  },
+  {
+    "inputs": {
+      "policyArn": "arn:@PARTITION@:iam::aws:policy/AmazonSSMManagedInstanceCore",
+      "role": "statusbox-status"
+    },
+    "name": "status-ssm-core",
+    "parent": "statusbox:ec2:Box::status",
+    "type": "aws:iam/rolePolicyAttachment:RolePolicyAttachment"
+  },
+  {
+    "inputs": {
+      "bucket": "acme-status-replica",
+      "content": "\u003ccontent\u003e",
+      "contentType": "text/plain",
+      "key": "box/config/\u003csha256\u003e.yaml",
+      "serverSideEncryption": "AES256",
+      "tags": {
+        "Estate": "acme",
+        "ManagedBy": "pulumi",
+        "Name": "status-ops"
+      }
+    },
+    "name": "status-config-ops",
+    "parent": "statusbox:ec2:Box::status",
+    "type": "aws:s3/bucketObjectv2:BucketObjectv2"
+  },
+  {
+    "inputs": {
+      "bucket": "acme-status-replica",
+      "content": "\u003ccontent\u003e",
+      "contentType": "text/plain",
+      "key": "box/config/\u003csha256\u003e.sh",
+      "serverSideEncryption": "AES256",
+      "tags": {
+        "Estate": "acme",
+        "ManagedBy": "pulumi",
+        "Name": "status-setup-script"
+      }
+    },
+    "name": "status-setup-script",
+    "parent": "statusbox:ec2:Box::status",
+    "type": "aws:s3/bucketObjectv2:BucketObjectv2"
+  },
+  {
+    "inputs": {},
+    "name": "status",
+    "parent": "pulumi:pulumi:Stack::p-s",
+    "type": "statusbox:ec2:Box"
+  }
+]

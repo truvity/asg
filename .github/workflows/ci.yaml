@@ -1,0 +1,42 @@
+# Calls the shared workflow (truvity/ci-workflows), which runs each
+# Justfile recipe as its OWN parallel job, reported under its own name.
+#
+# Pinned by COMMIT SHA, never a tag — tags move, and this code runs in
+# every repository of both organizations.
+name: CI
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  recipes:
+    uses: truvity/ci-workflows/.github/workflows/check.yaml@51bc0eb7d5d89931d336219f87bde091deaf48ed # v5.4.0
+    with:
+      # Strict: the component contract (C1-C12) is judged, shown in the job
+      # summary, and a failed rule fails the job. `vuln` is not here: it runs in security.yaml, on a
+      # schedule, where a new advisory is reported without turning every
+      # pull request red (the contract's C10).
+      policy-conformance: true
+      policy-conformance-strict: true
+      recipes: '["build","test","lint","leak-canary"]'
+
+  # Stable name for branch protection: the matrix reports as
+  # "recipes / lint" and so on, so a required context called "check"
+  # would never arrive and every PR would hang waiting for it.
+  check:
+    needs: recipes
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: '[ "${{ needs.recipes.result }}" = "success" ]'

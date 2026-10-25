@@ -1,0 +1,37 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadParameters",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:GetParameter"
+      ],
+      "Resource": [
+        "arn:@PARTITION@:ssm:eu-west-1:@ACCOUNT@:parameter/acme/router/auth",
+        "arn:@PARTITION@:ssm:eu-west-1:@ACCOUNT@:parameter/acme/router/key"
+      ]
+    },
+    {
+      "Sid": "ReadObjects",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject"
+      ],
+      "Resource": [
+        "arn:@PARTITION@:s3:::acme-config/router/config/<sha256>.conf"
+      ]
+    },
+    {
+      "Sid": "OwnGroup",
+      "Effect": "Allow",
+      "Action": [
+        "autoscaling:CompleteLifecycleAction",
+        "autoscaling:SetInstanceHealth"
+      ],
+      "Resource": [
+        "arn:@PARTITION@:autoscaling:eu-west-1:@ACCOUNT@:autoScalingGroup:*:autoScalingGroupName/router"
+      ]
+    }
+  ]
+}

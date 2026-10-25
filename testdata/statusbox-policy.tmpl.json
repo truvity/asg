@@ -1,0 +1,66 @@
+{
+  "Statement": [
+    {
+      "Action": [
+        "ssm:GetParameter"
+      ],
+      "Effect": "Allow",
+      "Resource": [
+        "arn:PARTITION:ssm:REGION:ACCOUNT:parameter/acme/status/alerts-read-token",
+        "arn:PARTITION:ssm:REGION:ACCOUNT:parameter/acme/status/tunnel-token"
+      ],
+      "Sid": "ReadOwnParameters"
+    },
+    {
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Effect": "Allow",
+      "Resource": [
+        "arn:PARTITION:s3:::acme-status-replica/box/*"
+      ],
+      "Sid": "ReplicaObjects"
+    },
+    {
+      "Action": [
+        "s3:ListBucket"
+      ],
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": [
+            "box/*"
+          ]
+        }
+      },
+      "Effect": "Allow",
+      "Resource": [
+        "arn:PARTITION:s3:::acme-status-replica"
+      ],
+      "Sid": "ReplicaList"
+    },
+    {
+      "Action": [
+        "s3:GetBucketLocation"
+      ],
+      "Effect": "Allow",
+      "Resource": [
+        "arn:PARTITION:s3:::acme-status-replica"
+      ],
+      "Sid": "ReplicaRegion"
+    },
+    {
+      "Action": [
+        "autoscaling:CompleteLifecycleAction",
+        "autoscaling:SetInstanceHealth"
+      ],
+      "Effect": "Allow",
+      "Resource": [
+        "arn:PARTITION:autoscaling:REGION:ACCOUNT:autoScalingGroup:*:autoScalingGroupName/statusbox-status"
+      ],
+      "Sid": "OwnGroup"
+    }
+  ],
+  "Version": "2012-10-17"
+}
