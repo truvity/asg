@@ -4,20 +4,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/truvity/asg/module"
 )
 
 // PolicyVersion is the IAM policy language version of every document.
 const PolicyVersion = "2012-10-17"
 
 // Statement is one IAM policy statement. The JSON field order is fixed, and
-// Action and Resource are always arrays, so a document is byte-stable.
-type Statement struct {
-	Sid       string                         `json:"Sid,omitempty"`
-	Effect    string                         `json:"Effect"`
-	Action    []string                       `json:"Action"`
-	Resource  []string                       `json:"Resource"`
-	Condition map[string]map[string][]string `json:"Condition,omitempty"`
-}
+// Action and Resource are always arrays, so a document is byte-stable. It is
+// defined in [module], so a module can contribute statements without Pulumi.
+type Statement = module.Statement
 
 // PolicyContext is what a policy callback may use.
 type PolicyContext struct {

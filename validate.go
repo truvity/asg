@@ -117,10 +117,6 @@ func (a Args) withDefaults(name string) Args {
 			cp.WarmupSeconds = DefaultGracePeriod
 		}
 
-		if len(cp.Triggers) == 0 {
-			cp.Triggers = []string{"launch_template"}
-		}
-
 		a.Refresh = &cp
 	}
 
@@ -423,6 +419,10 @@ func (a Args) validateGroup(name string) []error {
 		if r.WarmupSeconds < 0 {
 			add("Refresh.WarmupSeconds %d is negative", r.WarmupSeconds)
 		}
+
+		if r.MaxHealthyPercentage != 0 && (r.MaxHealthyPercentage < 100 || r.MaxHealthyPercentage > 200) {
+			add("Refresh.MaxHealthyPercentage %d: want 0 (unset) or 100..200", r.MaxHealthyPercentage)
+		}
 	}
 
 	return errs
@@ -559,7 +559,7 @@ func (a Args) validateSecurity(name string) []error {
 		add("Security.DeleteTimeout %q: want a duration such as 30m", s.DeleteTimeout)
 	}
 
-	ingress := append(append([]Rule{}, s.Ingress...), a.Contribution.Ingress...)
+	ingress := append(append([]Rule{}, s.Ingress...), ingressRules(a.Contribution.Ingress)...)
 	for i := range ingress {
 		errs = append(errs, validateRule(name, fmt.Sprintf("ingress rule %d", i), &ingress[i], true)...)
 	}

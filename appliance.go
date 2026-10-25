@@ -32,7 +32,8 @@ type Appliance struct {
 	// Role and InstanceProfile are the instance's identity.
 	Role            *iam.Role
 	InstanceProfile *iam.InstanceProfile
-	// Policy is the role's main inline policy document.
+	// Policy is the role's main inline policy document as exact JSON: the
+	// bytes the role carries, so a golden of it is a review artifact.
 	Policy pulumi.StringOutput
 	// ManagedPolicies are the attachments of Args.IAM.ManagedPolicyARNs.
 	ManagedPolicies []*iam.RolePolicyAttachment
@@ -83,7 +84,7 @@ func New(ctx *pulumi.Context, name string, args *Args, opts ...pulumi.ResourceOp
 	}
 
 	b := &builder{ctx: ctx, name: name, a: a, r: a.Names.Resolve(name), out: &Appliance{Names: a.Names.Resolve(name)}, contrib: a.Contribution}
-	b.ingress = append(slices.Clone(a.Security.Ingress), a.Contribution.Ingress...)
+	b.ingress = append(slices.Clone(a.Security.Ingress), ingressRules(a.Contribution.Ingress)...)
 	b.logicals = b.logical()
 
 	if a.Compat.Flat {
@@ -527,19 +528,30 @@ func (b *builder) group() error {
 	}
 
 	if r := a.Refresh; r != nil {
-		triggers := make(pulumi.StringArray, len(r.Triggers))
-		for i, t := range r.Triggers {
-			triggers[i] = pulumi.String(t)
+		prefs := autoscaling.GroupInstanceRefreshPreferencesArgs{
+			MinHealthyPercentage: pulumi.Int(r.MinHealthyPercentage),
+			InstanceWarmup:       pulumi.String(fmt.Sprint(r.WarmupSeconds)),
 		}
 
-		args.InstanceRefresh = autoscaling.GroupInstanceRefreshArgs{
-			Strategy: pulumi.String("Rolling"),
-			Preferences: autoscaling.GroupInstanceRefreshPreferencesArgs{
-				MinHealthyPercentage: pulumi.Int(r.MinHealthyPercentage),
-				InstanceWarmup:       pulumi.String(fmt.Sprint(r.WarmupSeconds)),
-			},
-			Triggers: triggers,
+		if r.MaxHealthyPercentage != 0 {
+			prefs.MaxHealthyPercentage = pulumi.Int(r.MaxHealthyPercentage)
 		}
+
+		if r.SkipMatching {
+			prefs.SkipMatching = pulumi.Bool(true)
+		}
+
+		if r.AutoRollback {
+			prefs.AutoRollback = pulumi.Bool(true)
+		}
+
+		refresh := autoscaling.GroupInstanceRefreshArgs{Strategy: pulumi.String("Rolling"), Preferences: prefs}
+
+		if len(r.Triggers) > 0 {
+			refresh.Triggers = toStringArray(r.Triggers)
+		}
+
+		args.InstanceRefresh = refresh
 	}
 
 	opts := b.child(KindGroup)

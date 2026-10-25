@@ -36,7 +36,7 @@
       ]
     },
     "name": "router",
-    "parent": "truvity:aws-structure:Appliance::router",
+    "parent": "truvity:asg:Box::router",
     "type": "aws:autoscaling/group:Group"
   },
   {
@@ -79,7 +79,7 @@
       ]
     },
     "name": "router",
-    "parent": "truvity:aws-structure:Appliance::router",
+    "parent": "truvity:asg:Box::router",
     "type": "aws:ec2/launchTemplate:LaunchTemplate"
   },
   {
@@ -103,7 +103,7 @@
       "vpcId": "vpc-0example"
     },
     "name": "router",
-    "parent": "truvity:aws-structure:Appliance::router",
+    "parent": "truvity:asg:Box::router",
     "type": "aws:ec2/securityGroup:SecurityGroup"
   },
   {
@@ -116,7 +116,7 @@
       }
     },
     "name": "router",
-    "parent": "truvity:aws-structure:Appliance::router",
+    "parent": "truvity:asg:Box::router",
     "type": "aws:iam/instanceProfile:InstanceProfile"
   },
   {
@@ -135,7 +135,7 @@
       }
     },
     "name": "router",
-    "parent": "truvity:aws-structure:Appliance::router",
+    "parent": "truvity:asg:Box::router",
     "type": "aws:iam/role:Role"
   },
   {
@@ -151,13 +151,13 @@
       }
     },
     "name": "router-object-fe3209d6d4f5",
-    "parent": "truvity:aws-structure:Appliance::router",
+    "parent": "truvity:asg:Box::router",
     "type": "aws:s3/bucketObjectv2:BucketObjectv2"
   },
   {
     "inputs": {},
     "name": "router",
     "parent": "pulumi:pulumi:Stack::p-s",
-    "type": "truvity:aws-structure:Appliance"
+    "type": "truvity:asg:Box"
   }
 ]

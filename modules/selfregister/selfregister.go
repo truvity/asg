@@ -1,0 +1,201 @@
+// Package selfregister is a module that makes the box write its own private
+// IP into a Route 53 hosted zone when it goes in service, so a stable name
+// points at the current in-service instance (the address changes on every
+// replacement or warm-pool takeover). Nothing here is secret.
+//
+// The instance role may only sts:AssumeRole on exactly RoleARN. That role,
+// which lives in the zone's account and is the caller's to create, must trust
+// the instance role and be limited to changing RecordName.
+//
+// The registration is a separate oneshot unit started without waiting, and
+// ordered after bootstrap-ready.service, so it runs after the launch hook was
+// completed and can never delay or prevent InService. It is fail-safe: every
+// failure is logged and the script exits 0. A warm-pool instance never
+// registers.
+package selfregister
+
+import (
+	"errors"
+	"fmt"
+	"regexp"
+
+	"github.com/truvity/asg/bootstrap"
+	"github.com/truvity/asg/module"
+)
+
+// DefaultTTL is the record's TTL when Args.TTL is zero: short, because the
+// address changes on every instance replacement.
+const DefaultTTL = 60
+
+// StartOrder is the order of the in-service step.
+const StartOrder = 800
+
+const (
+	scriptPath = module.LibDir + "/self-register.sh"
+	confPath   = "/etc/asg/self-register.conf"
+	unitName   = "asg-self-register.service"
+)
+
+var (
+	roleARNRE    = regexp.MustCompile(`^arn:[a-z-]+:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$`)
+	hostedZoneRE = regexp.MustCompile(`^Z[A-Z0-9]{3,31}$`)
+	recordNameRE = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+)
+
+// Args say which record the box maintains.
+type Args struct {
+	// RoleARN is the role to assume, typically in another account.
+	RoleARN string
+	// HostedZoneID is the zone that holds the record.
+	HostedZoneID string
+	// RecordName is the one A record the box UPSERTs.
+	RecordName string
+	// TTL defaults to DefaultTTL.
+	TTL int
+}
+
+type mod struct{ a Args }
+
+// New returns the self-registration module.
+func New(a Args) module.Module { return mod{a: a} }
+
+func (mod) Name() string { return "selfregister" }
+
+func (m mod) Contribute() (module.Contribution, error) {
+	a := m.a
+	if a.TTL == 0 {
+		a.TTL = DefaultTTL
+	}
+
+	var errs []error
+
+	if !roleARNRE.MatchString(a.RoleARN) {
+		errs = append(errs, fmt.Errorf("RoleARN %q is not a role ARN", a.RoleARN))
+	}
+
+	if !hostedZoneRE.MatchString(a.HostedZoneID) {
+		errs = append(errs, fmt.Errorf("HostedZoneID %q is not a hosted zone ID", a.HostedZoneID))
+	}
+
+	if !recordNameRE.MatchString(a.RecordName) {
+		errs = append(errs, fmt.Errorf("RecordName %q is not a lower-case DNS name without a trailing dot", a.RecordName))
+	}
+
+	if a.TTL < 0 || a.TTL > 86400 {
+		errs = append(errs, fmt.Errorf("TTL %d is out of range (0 for the default %d, or 1 to 86400)", a.TTL, DefaultTTL))
+	}
+
+	if err := errors.Join(errs...); err != nil {
+		return module.Contribution{}, err
+	}
+
+	conf := fmt.Sprintf("# Rendered by github.com/truvity/asg/modules/selfregister. No secret.\nDNS_ROLE_ARN=%s\nDNS_ZONE_ID=%s\nDNS_RECORD=%s\nDNS_TTL=%d\n",
+		module.ShellQuote(a.RoleARN), module.ShellQuote(a.HostedZoneID), module.ShellQuote(a.RecordName), a.TTL)
+
+	unit := "[Unit]\nDescription=Point a DNS record at this instance\nAfter=network-online.target bootstrap-ready.service\n\n" +
+		"[Service]\nType=oneshot\nTimeoutStartSec=120\nExecStart=" + scriptPath + "\n"
+
+	return module.Contribution{
+		Fragments: []bootstrap.Fragment{bootstrap.Compose("selfregister",
+			bootstrap.File{Path: scriptPath, Mode: "0755", Delivery: bootstrap.DeliveryInline, Content: script},
+			bootstrap.File{Path: confPath, Mode: "0644", Delivery: bootstrap.DeliveryInline, Content: conf},
+			bootstrap.Unit{Name: unitName, Content: unit},
+		)},
+		Statements: []module.Statement{{
+			Sid: "SelfRegisterDNS", Effect: "Allow", Action: []string{"sts:AssumeRole"}, Resource: []string{a.RoleARN},
+		}},
+		InService: []module.Step{{Name: "self-register", Order: StartOrder, Script: "systemctl start --no-block " + unitName + "\n"}},
+	}, nil
+}
+
+const script = `#!/usr/bin/env bash
+# asg-self-register: points a DNS A record at this instance's private IP.
+#
+# It is run by asg-self-register.service, started on a boot into service and
+# ordered after bootstrap-ready.service, that is AFTER the Auto Scaling
+# lifecycle hook was completed, so it can never delay or prevent InService.
+# It is fail-safe: every failure is logged and the script exits 0. It does
+# nothing unless the instance's target lifecycle state is InService.
+#
+# It reads the private IP from IMDSv2, assumes the cross-account role named in
+# /etc/asg/self-register.conf (DNS_ROLE_ARN) and UPSERTs the A record
+# DNS_RECORD in the hosted zone DNS_ZONE_ID with TTL DNS_TTL. The role is
+# limited to that one record name. Nothing secret is written to disk or to the
+# log: the temporary credentials live in this process's environment only.
+# Generated by github.com/truvity/asg/modules/selfregister.
+set -uo pipefail
+
+CONF="${ASG_SELF_REGISTER_CONF:-/etc/asg/self-register.conf}"
+ATTEMPTS=3
+
+log() { printf '%s asg-self-register: %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*" >&2; }
+
+imds_token() {
+  curl -fsS -m 5 -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 300"
+}
+
+imds() {
+  curl -fsS -m 5 -H "X-aws-ec2-metadata-token: $(imds_token)" "http://169.254.169.254/latest/$1"
+}
+
+# register_once prints nothing on success and returns non-zero on any failure.
+register_once() {
+  local ip="$1" region creds ak sk st batch
+  region="$(imds meta-data/placement/region)" || return 1
+  creds="$(AWS_REGION="$region" aws sts assume-role \
+    --role-arn "$DNS_ROLE_ARN" \
+    --role-session-name asg-self-register \
+    --duration-seconds 900 \
+    --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' \
+    --output text)" || return 1
+  read -r ak sk st <<<"$creds"
+  [ -n "$ak" ] && [ -n "$sk" ] && [ -n "$st" ] || return 1
+  batch="{\"Comment\":\"asg self-register\",\"Changes\":[{\"Action\":\"UPSERT\","
+  batch+="\"ResourceRecordSet\":{\"Name\":\"$DNS_RECORD\",\"Type\":\"A\",\"TTL\":$DNS_TTL,\"ResourceRecords\":[{\"Value\":\"$ip\"}]}}]}"
+  AWS_REGION="$region" AWS_ACCESS_KEY_ID="$ak" AWS_SECRET_ACCESS_KEY="$sk" AWS_SESSION_TOKEN="$st" \
+    aws route53 change-resource-record-sets \
+    --hosted-zone-id "$DNS_ZONE_ID" \
+    --change-batch "$batch" \
+    --query 'ChangeInfo.Id' --output text >/dev/null
+}
+
+main() {
+  local state ip n
+  # shellcheck disable=SC1090
+  . "$CONF" || { log "no configuration; nothing to do"; return 0; }
+  if [ -z "${DNS_ROLE_ARN:-}" ] || [ -z "${DNS_ZONE_ID:-}" ] || [ -z "${DNS_RECORD:-}" ]; then
+    log "not configured; nothing to do"
+    return 0
+  fi
+  DNS_TTL="${DNS_TTL:-60}"
+
+  state="$(imds meta-data/autoscaling/target-lifecycle-state 2>/dev/null || true)"
+  if [ "$state" != "InService" ]; then
+    log "target lifecycle state '${state:-none}', not InService; not registering"
+    return 0
+  fi
+
+  ip="$(imds meta-data/local-ipv4)" || { log "cannot read the private IP from IMDS"; return 0; }
+  if ! [[ "$ip" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
+    log "IMDS returned something that is not an IPv4 address; not registering"
+    return 0
+  fi
+
+  for n in $(seq 1 "$ATTEMPTS"); do
+    if register_once "$ip"; then
+      log "registered $DNS_RECORD -> $ip (ttl $DNS_TTL)"
+      return 0
+    fi
+    log "attempt $n/$ATTEMPTS failed"
+    [ "$n" = "$ATTEMPTS" ] || sleep 5
+  done
+  log "giving up after $ATTEMPTS attempts; $DNS_RECORD is unchanged"
+  return 0
+}
+
+# Sourced for a test (ASG_SOURCE_ONLY=1) the functions are defined and nothing
+# runs.
+if [ -z "${ASG_SOURCE_ONLY:-}" ]; then
+  main "$@"
+fi
+`

@@ -11,7 +11,7 @@ import (
 const (
 	// TypeToken is the Pulumi type of the component unless Compat.ComponentType
 	// overrides it.
-	TypeToken = "truvity:aws-structure:Appliance"
+	TypeToken = "truvity:asg:Box"
 
 	DefaultPartition        = "aws"
 	DefaultHeartbeatSeconds = 900
@@ -86,7 +86,12 @@ type (
 
 		IAM      IAMArgs
 		Security SecurityArgs
-		Alarms   AlarmsArgs
+		// Alarms are CloudWatch alarms on the group.
+		//
+		// Deprecated: monitoring is self-hosted. An alarm with no action is
+		// read by nobody; export metrics from the box instead. Alarms keep
+		// working and are removed no sooner than the next minor release.
+		Alarms AlarmsArgs
 
 		// Contribution is what the modules add (see Collect).
 		Contribution Contribution
@@ -217,12 +222,22 @@ type (
 	}
 
 	// RefreshArgs is the rolling instance refresh the launch template change
-	// triggers.
+	// starts. The Auto Scaling API starts a refresh on every launch template
+	// version change whenever the group has a refresh block, so Triggers stays
+	// empty unless the caller wants another trigger.
 	RefreshArgs struct {
 		MinHealthyPercentage int
+		// MaxHealthyPercentage lets a refresh launch before it terminates
+		// (100 to 200; 0 leaves it unset).
+		MaxHealthyPercentage int
 		// WarmupSeconds defaults to 300.
 		WarmupSeconds int
-		// Triggers default to launch_template.
+		// SkipMatching skips instances that already match the launch template.
+		SkipMatching bool
+		// AutoRollback rolls the refresh back when it fails.
+		AutoRollback bool
+		// Triggers are extra triggers beyond the launch template. Default
+		// none. Naming launch_template is redundant and makes Pulumi warn.
 		Triggers []string
 	}
 
@@ -261,6 +276,8 @@ type (
 	}
 
 	// AlarmsArgs are CloudWatch alarms on the appliance.
+	//
+	// Deprecated: see [Args].Alarms.
 	AlarmsArgs struct {
 		// ActionARNs are notified when an alarm fires (e.g. an SNS topic).
 		// Empty: the alarms notify nobody.
@@ -270,6 +287,8 @@ type (
 	}
 
 	// Alarm is one metric alarm. Dimensions default to the group.
+	//
+	// Deprecated: see [Args].Alarms.
 	Alarm struct {
 		// Suffix names the alarm: "<Base>-<Suffix>", and its logical name.
 		Suffix string

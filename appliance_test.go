@@ -9,6 +9,7 @@ import (
 
 	"github.com/truvity/asg"
 	"github.com/truvity/asg/bootstrap"
+	"github.com/truvity/asg/module"
 )
 
 // composed renders a plan with a secret, a spilled-to-object file and the
@@ -215,7 +216,7 @@ func (m mod) Contribute() (asg.Contribution, error) { return m.c, nil }
 func TestModulesContributeToThePolicyAndTheGroup(t *testing.T) {
 	c, err := asg.Collect(mod{asg.Contribution{
 		SSMParameters: []string{"/acme/router/hostkey"},
-		Ingress:       []asg.Rule{{FromPort: 22, ToPort: 22, CIDRs: []string{"10.0.0.0/8"}}},
+		Ingress:       []module.Rule{{FromPort: 22, ToPort: 22, CIDRs: []string{"10.0.0.0/8"}}},
 		Statements:    []asg.Statement{{Sid: "Mod", Action: []string{"ec2:DescribeInstances"}, Resource: []string{"*"}}},
 	}})
 	if err != nil {

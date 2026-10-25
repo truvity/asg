@@ -36,7 +36,7 @@
       }
     },
     "name": "router",
-    "parent": "truvity:aws-structure:Appliance::router",
+    "parent": "truvity:asg:Box::router",
     "type": "aws:autoscaling/group:Group"
   },
   {
@@ -48,7 +48,7 @@
       "name": "router-launch"
     },
     "name": "router-hook",
-    "parent": "truvity:aws-structure:Appliance::router",
+    "parent": "truvity:asg:Box::router",
     "type": "aws:autoscaling/lifecycleHook:LifecycleHook"
   },
   {
@@ -75,7 +75,7 @@
       "treatMissingData": "missing"
     },
     "name": "router-alarm-in-service",
-    "parent": "truvity:aws-structure:Appliance::router",
+    "parent": "truvity:asg:Box::router",
     "type": "aws:cloudwatch/metricAlarm:MetricAlarm"
   },
   {
@@ -118,7 +118,7 @@
       ]
     },
     "name": "router",
-    "parent": "truvity:aws-structure:Appliance::router",
+    "parent": "truvity:asg:Box::router",
     "type": "aws:ec2/launchTemplate:LaunchTemplate"
   },
   {
@@ -132,7 +132,7 @@
       "vpcId": "vpc-0example"
     },
     "name": "router",
-    "parent": "truvity:aws-structure:Appliance::router",
+    "parent": "truvity:asg:Box::router",
     "type": "aws:ec2/securityGroup:SecurityGroup"
   },
   {
@@ -145,7 +145,7 @@
       }
     },
     "name": "router",
-    "parent": "truvity:aws-structure:Appliance::router",
+    "parent": "truvity:asg:Box::router",
     "type": "aws:iam/instanceProfile:InstanceProfile"
   },
   {
@@ -164,7 +164,7 @@
       }
     },
     "name": "router",
-    "parent": "truvity:aws-structure:Appliance::router",
+    "parent": "truvity:asg:Box::router",
     "type": "aws:iam/role:Role"
   },
   {
@@ -180,7 +180,7 @@
       }
     },
     "name": "router-object-fe3209d6d4f5",
-    "parent": "truvity:aws-structure:Appliance::router",
+    "parent": "truvity:asg:Box::router",
     "type": "aws:s3/bucketObjectv2:BucketObjectv2"
   },
   {
@@ -190,7 +190,7 @@
       "securityGroupId": "router_id"
     },
     "name": "router-egress-0",
-    "parent": "truvity:aws-structure:Appliance::router",
+    "parent": "truvity:asg:Box::router",
     "type": "aws:vpc/securityGroupEgressRule:SecurityGroupEgressRule"
   },
   {
@@ -202,13 +202,13 @@
       "toPort": 41641
     },
     "name": "router-ingress-0",
-    "parent": "truvity:aws-structure:Appliance::router",
+    "parent": "truvity:asg:Box::router",
     "type": "aws:vpc/securityGroupIngressRule:SecurityGroupIngressRule"
   },
   {
     "inputs": {},
     "name": "router",
     "parent": "pulumi:pulumi:Stack::p-s",
-    "type": "truvity:aws-structure:Appliance"
+    "type": "truvity:asg:Box"
   }
 ]

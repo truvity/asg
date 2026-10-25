@@ -68,7 +68,7 @@ func statusBoxArgs(t *testing.T, userData *bootstrap.Rendered) *asg.Args {
 		Group:    asg.GroupArgs{SubnetIDs: []pulumi.StringInput{pulumi.String("subnet-0a"), pulumi.String("subnet-0b")}},
 		Hook:     &asg.HookArgs{},
 		WarmPool: &asg.WarmPoolArgs{MinSize: 1, MaxGroupPreparedCapacity: &two},
-		Refresh:  &asg.RefreshArgs{},
+		Refresh:  &asg.RefreshArgs{Triggers: []string{"launch_template"}},
 		IAM: asg.IAMArgs{
 			PolicyName:          "statusbox",
 			PermissionsBoundary: "arn:" + part + ":iam::" + testAccount + ":policy/boundary",
