@@ -42,7 +42,7 @@ service half configured.
 ## Install and a worked example
 
 ```sh
-go get github.com/truvity/asg@latest
+go get github.com/truvity/asg
 ```
 
 ```go
