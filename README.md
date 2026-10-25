@@ -23,7 +23,27 @@ The rules the component enforces, whatever the caller passes:
 - a warm pool without a lifecycle hook is refused;
 - the image is pinned at deploy time, so a newer image is a visible diff.
 
-## Use
+## Who it is for
+
+Anyone running a service on EC2 the replace-don't-repair way with Pulumi in
+Go: a stateless box, or a small fleet, whose whole configuration is its
+user-data, behind a load balancer, a tunnel or nothing at all.
+
+## The model
+
+One call, `asg.New`, registers an Auto Scaling group and everything it needs
+as children of one component. The user-data is a `bootstrap.Plan`: files,
+units and the secrets the instance reads at boot, by exact name. The IAM
+policy is derived from the plan, so an instance can read what its user-data
+names and nothing else. A launch lifecycle hook with a default of ABANDON
+means an instance that never finished booting is replaced, never put in
+service half configured.
+
+## Install and a worked example
+
+```sh
+go get github.com/truvity/asg@latest
+```
 
 ```go
 import (
@@ -33,17 +53,39 @@ import (
 ```
 
 Build a `bootstrap.Plan`, render it, and pass the result to `asg.New` with
-the group, instance, IAM and network arguments. `Compat` lets an existing
-group move onto this library without Pulumi replacing anything: it keeps the
+the group, instance, IAM and network arguments. The package documentation
+and `statusbox_test.go` show a complete box. `Compat` lets an existing group
+move onto this library without Pulumi replacing anything: it keeps the
 component type, the logical names and the layout the group was created with.
-See the package documentation and the decisions under `docs/decisions/`.
+
+## Consumers
+
+The status page box in truvity/observability (`pkg/statusbox/ec2`).
+
+## Neighbours
+
+[truvity/aws-structure](https://github.com/truvity/aws-structure) shapes the
+AWS organization this runs in; the code here used to live there as
+`pkg/appliance` and `pkg/bootstrap`.
+
+## Documentation
+
+The package documentation, and the decisions under
+[`docs/decisions/`](docs/decisions/).
+
+## The rule that makes this repository public
+
+Mechanism only. Account ids, regions, names, images and policy statements
+are the caller's; nothing here defaults to one estate's value, and the tests
+use Pulumi mocks and never reach an AWS account.
+[`hack/leak-canary.sh`](hack/leak-canary.sh) enforces the mechanical half
+over tracked files and runs in the gate, with no exception.
 
 ## Status
 
-`v0.x`: the API may change in a minor release. v0.1.0 is the code that was
-`pkg/appliance` and `pkg/bootstrap` in
-[truvity/aws-structure](https://github.com/truvity/aws-structure), moved
-without a behaviour change.
+`v0.x`: the API may change in a minor release, and every change is in the
+[CHANGELOG](CHANGELOG.md). v0.1.0 is the code that was `pkg/appliance` and
+`pkg/bootstrap` in truvity/aws-structure, moved without a behaviour change.
 
 ## Development
 
@@ -52,9 +94,12 @@ devbox shell
 just check      # build, test, lint, leak-canary
 ```
 
-Tests use Pulumi mocks and compare the registered resources, the rendered
-user-data and the policies with goldens; they never reach an AWS account.
+## Releasing
 
-## License
+Releases are a `v*` tag, which the shared release workflow turns into the Go
+module version and a GitHub Release. Automatic patch releases are not armed;
+releases are hand-cut tags.
+
+## Licence
 
 MIT, see [LICENSE](LICENSE).
