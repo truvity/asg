@@ -1,9 +1,12 @@
 package front
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/pulumi/pulumi-aws/sdk/v7/go/aws/ec2"
 	"github.com/pulumi/pulumi-aws/sdk/v7/go/aws/lb"
@@ -202,6 +205,19 @@ func healthPort(l Listener) string {
 	return strconv.Itoa(l.HealthCheck.Port)
 }
 
+// targetGroupName is the listener's name, cut to 24 characters, then "-" and
+// the first 7 hex digits of the sha256 of the protocol, the target port and
+// the VPC: at most 32 characters, the target group limit.
+func targetGroupName(l Listener, vpc pulumi.StringOutput) pulumi.StringOutput {
+	base := strings.TrimRight(l.Name[:min(len(l.Name), 24)], "-")
+
+	return vpc.ApplyT(func(v string) string {
+		sum := sha256.Sum256([]byte(l.Protocol + "|" + strconv.Itoa(l.TargetPort) + "|" + v))
+
+		return base + "-" + hex.EncodeToString(sum[:])[:7]
+	}).(pulumi.StringOutput)
+}
+
 func targetGroup(ctx *pulumi.Context, name string, nlb ref, l Listener, opts []pulumi.ResourceOption) (*lb.TargetGroup, error) {
 	hc := &lb.TargetGroupHealthCheckArgs{
 		Enabled:            pulumi.Bool(true),
@@ -216,9 +232,11 @@ func targetGroup(ctx *pulumi.Context, name string, nlb ref, l Listener, opts []p
 	}
 
 	args := &lb.TargetGroupArgs{
-		// No fixed name: a target group is replaced when its port, protocol
-		// or VPC changes, and a replacement created beside the old one cannot
-		// reuse its name. The Name tag carries the listener's name.
+		// The name changes with what replaces a target group (its port,
+		// protocol and VPC), so a replacement created beside the old one never
+		// needs the old one's name. Not Pulumi's autoname: that appends 8
+		// characters to the logical name, and a target group takes 32.
+		Name:        targetGroupName(l, nlb.vpc),
 		TargetType:  pulumi.String("instance"),
 		Protocol:    pulumi.String(l.Protocol),
 		Port:        pulumi.Int(l.TargetPort),
