@@ -102,6 +102,11 @@ type Contribution struct {
 	Ingress []Rule
 	// ManagedPolicyARNs are attached to the role.
 	ManagedPolicyARNs []string
+	// GroupActions are Auto Scaling actions the box may call on its own
+	// group, such as autoscaling:EnterStandby. The appliance adds them to
+	// the statement on the group's ARN, so a module never needs the
+	// account, region or name to build one.
+	GroupActions []string
 
 	// InService steps run when the instance goes in service.
 	InService []Step
@@ -142,6 +147,7 @@ func Collect(mods ...Module) (Contribution, error) {
 		out.ObjectKeys = append(out.ObjectKeys, c.ObjectKeys...)
 		out.Ingress = append(out.Ingress, c.Ingress...)
 		out.ManagedPolicyARNs = append(out.ManagedPolicyARNs, c.ManagedPolicyARNs...)
+		out.GroupActions = append(out.GroupActions, c.GroupActions...)
 		out.InService = append(out.InService, c.InService...)
 		out.ReadyChecks = append(out.ReadyChecks, c.ReadyChecks...)
 		out.Watch = append(out.Watch, c.Watch...)
@@ -179,7 +185,10 @@ func (c Contribution) AddTo(p *bootstrap.Plan) error {
 	return errors.Join(errs...)
 }
 
-var nameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+var (
+	nameRe        = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+	groupActionRe = regexp.MustCompile(`^autoscaling:[A-Z][A-Za-z]+$`)
+)
 
 func (c Contribution) validate() error {
 	var errs []error
@@ -209,6 +218,12 @@ func (c Contribution) validate() error {
 
 		if r.Script == "" || r.TimeoutSeconds < 0 {
 			errs = append(errs, fmt.Errorf("ready check %q: want a script and a non-negative timeout", r.Name))
+		}
+	}
+
+	for _, a := range c.GroupActions {
+		if !groupActionRe.MatchString(a) {
+			errs = append(errs, fmt.Errorf("group action %q: want one autoscaling:Action, no wildcard", a))
 		}
 	}
 

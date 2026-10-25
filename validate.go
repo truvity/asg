@@ -31,6 +31,8 @@ var (
 	amiNameRe      = regexp.MustCompile(`^[A-Za-z0-9_.*?()/\-]+$`)
 	timeoutRe      = regexp.MustCompile(`^[0-9]+(s|m|h)$`)
 	deviceRe       = regexp.MustCompile(`^[a-z]{1,4}[0-9]?$`)
+	dataDeviceRe   = regexp.MustCompile(`^/dev/sd[f-p]$`)
+	groupActionRe  = regexp.MustCompile(`^autoscaling:[A-Z][A-Za-z]+$`)
 	ssmAMIRe       = regexp.MustCompile(`^/[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$`)
 )
 
@@ -40,6 +42,13 @@ var (
 		"LessThanThreshold": true, "LessThanOrEqualToThreshold": true,
 	}
 	protocols = map[string]bool{"tcp": true, "udp": true, "icmp": true, "icmpv6": true, "-1": true}
+	// volumeTypes are the EBS types a data volume may have.
+	volumeTypes = map[string]bool{"gp3": true, "gp2": true, "io1": true, "io2": true, "st1": true, "sc1": true}
+	// terminationPolicies are the Auto Scaling termination policies by name.
+	terminationPolicies = map[string]bool{
+		"Default": true, "AllocationStrategy": true, "OldestLaunchTemplate": true, "OldestLaunchConfiguration": true,
+		"ClosestToNextInstanceHour": true, "NewestInstance": true, "OldestInstance": true,
+	}
 )
 
 // withDefaults returns a copy of a with every default applied.
@@ -87,6 +96,19 @@ func (a Args) withDefaults(name string) Args {
 		}
 
 		a.Instance.RootVolume = &cp
+	}
+
+	if len(a.Instance.Volumes) > 0 {
+		vs := make([]VolumeArgs, len(a.Instance.Volumes))
+		for i, v := range a.Instance.Volumes {
+			if v.Type == "" {
+				v.Type = DefaultVolumeType
+			}
+
+			vs[i] = v
+		}
+
+		a.Instance.Volumes = vs
 	}
 
 	if h := a.Hook; h != nil {
@@ -313,7 +335,28 @@ func (a Args) validateCompute(name string) []error {
 		errs = append(errs, fmt.Errorf("appliance %q: "+format, append([]any{name}, v...)...))
 	}
 
-	if !instanceTypeRe.MatchString(a.Instance.Type) {
+	switch {
+	case a.Instance.Type != "" && len(a.Instance.Types) > 0:
+		add("Instance.Type and Instance.Types are both set: name one type, or several")
+	case len(a.Instance.Types) > 0:
+		seen := map[string]bool{}
+
+		for i, t := range a.Instance.Types {
+			if !instanceTypeRe.MatchString(t) {
+				add("Instance.Types[%d] %q is not an instance type", i, t)
+			}
+
+			if seen[t] {
+				add("Instance.Types names %q twice", t)
+			}
+
+			seen[t] = true
+		}
+
+		if a.WarmPool != nil {
+			add("Instance.Types makes a mixed instances policy, which Auto Scaling does not allow with a warm pool: name one Type")
+		}
+	case !instanceTypeRe.MatchString(a.Instance.Type):
 		add("Instance.Type %q is not an instance type", a.Instance.Type)
 	}
 
@@ -328,6 +371,47 @@ func (a Args) validateCompute(name string) []error {
 
 		if !strings.HasPrefix(rv.DeviceName, "/dev/") && !deviceRe.MatchString(rv.DeviceName) {
 			add("Instance.RootVolume.DeviceName %q: want /dev/xvda or sda1 style", rv.DeviceName)
+		}
+	}
+
+	if len(a.Instance.Volumes) > MaxDataVolumes {
+		add("Instance.Volumes has %d volumes: at most %d (/dev/sdf to /dev/sdp)", len(a.Instance.Volumes), MaxDataVolumes)
+	}
+
+	devices := map[string]bool{}
+	if rv := a.Instance.RootVolume; rv != nil {
+		devices[rv.DeviceName] = true
+	}
+
+	for i, v := range a.Instance.Volumes {
+		if !dataDeviceRe.MatchString(v.DeviceName) {
+			add("Instance.Volumes[%d].DeviceName %q: want /dev/sdf to /dev/sdp", i, v.DeviceName)
+		}
+
+		if devices[v.DeviceName] {
+			add("Instance.Volumes[%d].DeviceName %q is used twice", i, v.DeviceName)
+		}
+
+		devices[v.DeviceName] = true
+
+		if v.SizeGiB < 1 || v.SizeGiB > 16384 {
+			add("Instance.Volumes[%d].SizeGiB %d: want 1..16384", i, v.SizeGiB)
+		}
+
+		if !volumeTypes[v.Type] {
+			add("Instance.Volumes[%d].Type %q: want gp3, gp2, io1, io2, st1 or sc1", i, v.Type)
+		}
+
+		if v.IOPS < 0 || v.ThroughputMiBps < 0 {
+			add("Instance.Volumes[%d]: IOPS and ThroughputMiBps must not be negative", i)
+		}
+
+		if v.ThroughputMiBps > 0 && v.Type != "gp3" {
+			add("Instance.Volumes[%d].ThroughputMiBps is set on a %s volume: only gp3 takes a throughput", i, v.Type)
+		}
+
+		if v.KMSKeyID != "" && !kmsARNRe.MatchString(v.KMSKeyID) {
+			add("Instance.Volumes[%d].KMSKeyID %q: want a key ARN", i, v.KMSKeyID)
 		}
 	}
 
@@ -368,6 +452,19 @@ func (a Args) validateGroup(name string) []error {
 
 	if g.GracePeriodSeconds < 0 {
 		add("Group.GracePeriodSeconds %d is negative", g.GracePeriodSeconds)
+	}
+
+	seenPolicy := map[string]bool{}
+	for _, p := range g.TerminationPolicies {
+		if !terminationPolicies[p] {
+			add("Group.TerminationPolicies %q: not a termination policy", p)
+		}
+
+		if seenPolicy[p] {
+			add("Group.TerminationPolicies names %q twice", p)
+		}
+
+		seenPolicy[p] = true
 	}
 
 	for i, t := range g.TargetGroupARNs {
@@ -471,12 +568,19 @@ func (a Args) validateIAM(name string) []error {
 	}
 
 	if i.Policy != nil && (len(i.Statements) > 0 || i.StatementsFunc != nil || len(i.SSMParameters) > 0 || len(i.ObjectKeys) > 0 ||
-		len(a.Contribution.Statements) > 0 || len(a.Contribution.SSMParameters) > 0 || len(a.Contribution.ObjectKeys) > 0) {
+		len(a.Contribution.Statements) > 0 || len(a.Contribution.SSMParameters) > 0 || len(a.Contribution.ObjectKeys) > 0 ||
+		len(a.Contribution.GroupActions) > 0) {
 		add("IAM.Policy replaces the generated policy: it excludes Statements, StatementsFunc, SSMParameters, ObjectKeys and the modules' grants")
 	}
 
 	for n, s := range append(append([]Statement{}, i.Statements...), a.Contribution.Statements...) {
 		errs = append(errs, validateStatement(name, fmt.Sprintf("statement %d", n), s)...)
+	}
+
+	for _, act := range a.Contribution.GroupActions {
+		if !groupActionRe.MatchString(act) {
+			add("group action %q: want one autoscaling:Action, no wildcard", act)
+		}
 	}
 
 	seen := map[string]bool{i.PolicyName: true}

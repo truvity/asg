@@ -6,6 +6,10 @@
 // times and then calls autoscaling:SetInstanceHealth. The timer is started
 // only on a boot into service, so a warm-pool instance never reports.
 //
+// A module that restarts a watched service on purpose pauses the watchdog by
+// writing a Unix time to /run/asg-watchdog/paused-until; the watchdog does
+// nothing before that time.
+//
 // The role needs autoscaling:SetInstanceHealth on the box's own group, which
 // the appliance grants whenever the box has a launch hook.
 package watchdog
@@ -150,6 +154,12 @@ imds() {
   t="$(curl -fsS -m 5 -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 300' http://169.254.169.254/latest/api/token)" || return 1
   curl -fsS -m 5 -H "X-aws-ec2-metadata-token: $t" "http://169.254.169.254/latest/meta-data/$1"
 }
+
+# Another module restarting the service on purpose (ssmcert's rotation)
+# pauses the watchdog until a time it writes here.
+if [ -f "$STATE/paused-until" ] && [ "$(date +%s)" -lt "$(cat "$STATE/paused-until" 2>/dev/null || echo 0)" ]; then
+  exit 0
+fi
 
 ok=1
 for f in "$LIB"/watch.d/*; do

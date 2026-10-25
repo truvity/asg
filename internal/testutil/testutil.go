@@ -29,7 +29,7 @@ type Rendered struct {
 func Render(t *testing.T, c module.Contribution) Rendered {
 	t.Helper()
 
-	p, err := bootstrap.New(bootstrap.Options{Lifecycle: Lifecycle, Gzip: bootstrap.GzipNever})
+	p, err := bootstrap.New(bootstrap.Options{Lifecycle: Lifecycle})
 	if err != nil {
 		t.Fatal(err)
 	}

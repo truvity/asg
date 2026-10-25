@@ -229,7 +229,7 @@ func (b *builder) generatedPolicy(pc PolicyContext) (string, error) {
 		in.Group = b.r.Group
 	}
 
-	st := BootstrapStatements(in)
+	st := withGroupActions(BootstrapStatements(in), b.contrib.GroupActions, pc, b.r.Group)
 	st = append(st, b.a.IAM.Statements...)
 	st = append(st, b.contrib.Statements...)
 
@@ -394,7 +394,6 @@ func (b *builder) compute() error {
 		Name:                 pulumi.String(b.r.LaunchTemplate),
 		UpdateDefaultVersion: pulumi.Bool(true),
 		ImageId:              b.imageID(),
-		InstanceType:         pulumi.String(a.Instance.Type),
 		UserData:             pulumi.String(base64Of(a.UserData.UserData)),
 		IamInstanceProfile:   ec2.LaunchTemplateIamInstanceProfileArgs{Arn: b.out.InstanceProfile.Arn},
 		MetadataOptions: ec2.LaunchTemplateMetadataOptionsArgs{
@@ -409,6 +408,14 @@ func (b *builder) compute() error {
 		Tags: b.tags(b.r.LaunchTemplate),
 	}
 
+	// One type: the launch template names it. Several: the group's mixed
+	// instances policy names them and the template names none.
+	if a.Instance.Type != "" {
+		args.InstanceType = pulumi.String(a.Instance.Type)
+	}
+
+	var devices ec2.LaunchTemplateBlockDeviceMappingArray
+
 	if rv := a.Instance.RootVolume; rv != nil {
 		ebs := ec2.LaunchTemplateBlockDeviceMappingEbsArgs{
 			VolumeSize:          pulumi.Int(rv.SizeGiB),
@@ -420,9 +427,33 @@ func (b *builder) compute() error {
 			ebs.KmsKeyId = pulumi.String(rv.KMSKeyID)
 		}
 
-		args.BlockDeviceMappings = ec2.LaunchTemplateBlockDeviceMappingArray{
-			ec2.LaunchTemplateBlockDeviceMappingArgs{DeviceName: pulumi.String(rv.DeviceName), Ebs: ebs},
+		devices = append(devices, ec2.LaunchTemplateBlockDeviceMappingArgs{DeviceName: pulumi.String(rv.DeviceName), Ebs: ebs})
+	}
+
+	for _, v := range a.Instance.Volumes {
+		ebs := ec2.LaunchTemplateBlockDeviceMappingEbsArgs{
+			VolumeSize:          pulumi.Int(v.SizeGiB),
+			VolumeType:          pulumi.String(v.Type),
+			Encrypted:           pulumi.String("true"),
+			DeleteOnTermination: pulumi.String("true"),
 		}
+		if v.IOPS > 0 {
+			ebs.Iops = pulumi.Int(v.IOPS)
+		}
+
+		if v.ThroughputMiBps > 0 {
+			ebs.Throughput = pulumi.Int(v.ThroughputMiBps)
+		}
+
+		if v.KMSKeyID != "" {
+			ebs.KmsKeyId = pulumi.String(v.KMSKeyID)
+		}
+
+		devices = append(devices, ec2.LaunchTemplateBlockDeviceMappingArgs{DeviceName: pulumi.String(v.DeviceName), Ebs: ebs})
+	}
+
+	if len(devices) > 0 {
+		args.BlockDeviceMappings = devices
 	}
 
 	if a.Instance.PublicIP != nil {
@@ -481,19 +512,46 @@ func (b *builder) group() error {
 		subnets[i] = s.ToStringOutput()
 	}
 
+	version := b.out.LaunchTemplate.LatestVersion.ApplyT(func(v int) string { return fmt.Sprint(v) }).(pulumi.StringOutput)
+
 	args := &autoscaling.GroupArgs{
-		Name:               pulumi.String(b.r.Group),
-		MinSize:            pulumi.Int(g.Min),
-		MaxSize:            pulumi.Int(g.Max),
-		DesiredCapacity:    pulumi.Int(g.Desired),
-		VpcZoneIdentifiers: subnets,
-		LaunchTemplate: autoscaling.GroupLaunchTemplateArgs{
-			Id:      b.out.LaunchTemplate.ID(),
-			Version: b.out.LaunchTemplate.LatestVersion.ApplyT(func(v int) string { return fmt.Sprint(v) }).(pulumi.StringOutput),
-		},
+		Name:                   pulumi.String(b.r.Group),
+		MinSize:                pulumi.Int(g.Min),
+		MaxSize:                pulumi.Int(g.Max),
+		DesiredCapacity:        pulumi.Int(g.Desired),
+		VpcZoneIdentifiers:     subnets,
 		HealthCheckType:        pulumi.String(g.HealthCheckType),
 		HealthCheckGracePeriod: pulumi.Int(g.GracePeriodSeconds),
 		Tags:                   b.groupTags(),
+	}
+
+	if types := a.Instance.Types; len(types) > 0 {
+		overrides := make(autoscaling.GroupMixedInstancesPolicyLaunchTemplateOverrideArray, len(types))
+		for i, t := range types {
+			overrides[i] = autoscaling.GroupMixedInstancesPolicyLaunchTemplateOverrideArgs{InstanceType: pulumi.String(t)}
+		}
+
+		args.MixedInstancesPolicy = autoscaling.GroupMixedInstancesPolicyArgs{
+			// On-demand only, in the order given.
+			InstancesDistribution: autoscaling.GroupMixedInstancesPolicyInstancesDistributionArgs{
+				OnDemandAllocationStrategy:          pulumi.String("prioritized"),
+				OnDemandBaseCapacity:                pulumi.Int(0),
+				OnDemandPercentageAboveBaseCapacity: pulumi.Int(100),
+			},
+			LaunchTemplate: autoscaling.GroupMixedInstancesPolicyLaunchTemplateArgs{
+				LaunchTemplateSpecification: autoscaling.GroupMixedInstancesPolicyLaunchTemplateLaunchTemplateSpecificationArgs{
+					LaunchTemplateId: b.out.LaunchTemplate.ID(),
+					Version:          version,
+				},
+				Overrides: overrides,
+			},
+		}
+	} else {
+		args.LaunchTemplate = autoscaling.GroupLaunchTemplateArgs{Id: b.out.LaunchTemplate.ID(), Version: version}
+	}
+
+	if len(g.TerminationPolicies) > 0 {
+		args.TerminationPolicies = toStringArray(g.TerminationPolicies)
 	}
 
 	if len(g.TargetGroupARNs) > 0 {
@@ -531,6 +589,10 @@ func (b *builder) group() error {
 		wp := autoscaling.GroupWarmPoolArgs{PoolState: pulumi.String(w.State), MinSize: pulumi.Int(w.MinSize)}
 		if w.MaxGroupPreparedCapacity != nil {
 			wp.MaxGroupPreparedCapacity = pulumi.Int(*w.MaxGroupPreparedCapacity)
+		}
+
+		if w.ReuseOnScaleIn {
+			wp.InstanceReusePolicy = autoscaling.GroupWarmPoolInstanceReusePolicyArgs{ReuseOnScaleIn: pulumi.Bool(true)}
 		}
 
 		args.WarmPool = wp
