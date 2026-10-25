@@ -496,6 +496,15 @@ func (b *builder) group() error {
 		Tags:                   b.groupTags(),
 	}
 
+	if len(g.TargetGroupARNs) > 0 {
+		tgs := make(pulumi.StringArray, len(g.TargetGroupARNs))
+		for i, t := range g.TargetGroupARNs {
+			tgs[i] = t.ToStringOutput()
+		}
+
+		args.TargetGroupArns = tgs
+	}
+
 	if len(g.EnabledMetrics) > 0 {
 		metrics := make(autoscaling.MetricArray, len(g.EnabledMetrics))
 		for i, m := range g.EnabledMetrics {

@@ -1,0 +1,64 @@
+[
+  {
+    "inputs": {
+      "defaultActions": [
+        {
+          "targetGroupArn": "arn:@PARTITION@:elasticloadbalancing:eu-west-1::targetgroup/builders-buildkit-arm64",
+          "type": "forward"
+        }
+      ],
+      "loadBalancerArn": "arn:@PARTITION@:elasticloadbalancing:eu-west-1::loadbalancer/net/box-front",
+      "port": 1235,
+      "protocol": "TCP",
+      "tags": {
+        "Name": "buildkit-arm64"
+      },
+      "tcpIdleTimeoutSeconds": 3600
+    },
+    "name": "builders-buildkit-arm64",
+    "parent": "truvity:asg:Front::builders",
+    "type": "aws:lb/listener:Listener"
+  },
+  {
+    "inputs": {
+      "deregistrationDelay": 30,
+      "healthCheck": {
+        "enabled": true,
+        "healthyThreshold": 3,
+        "interval": 10,
+        "port": "traffic-port",
+        "protocol": "TCP",
+        "unhealthyThreshold": 3
+      },
+      "port": 1234,
+      "protocol": "TCP",
+      "tags": {
+        "Name": "buildkit-arm64"
+      },
+      "targetType": "instance",
+      "vpcId": "vpc-0example"
+    },
+    "name": "builders-buildkit-arm64",
+    "parent": "truvity:asg:Front::builders",
+    "type": "aws:lb/targetGroup:TargetGroup"
+  },
+  {
+    "inputs": {
+      "description": "Runners",
+      "fromPort": 1235,
+      "ipProtocol": "tcp",
+      "referencedSecurityGroupId": "sg-0runners",
+      "securityGroupId": "sg-0front",
+      "toPort": 1235
+    },
+    "name": "builders-buildkit-arm64-in-0-tcp",
+    "parent": "truvity:asg:Front::builders",
+    "type": "aws:vpc/securityGroupIngressRule:SecurityGroupIngressRule"
+  },
+  {
+    "inputs": {},
+    "name": "builders",
+    "parent": "pulumi:pulumi:Stack::p-s",
+    "type": "truvity:asg:Front"
+  }
+]
