@@ -20,8 +20,11 @@ const (
 	DefaultRootDevice       = "/dev/xvda"
 	DefaultRootVolumeGiB    = 8
 	DefaultVolumeType       = "gp3"
-	DefaultPolicyName       = "appliance"
-	DefaultContentType      = "text/plain"
+	// MaxDataVolumes bounds InstanceArgs.Volumes: device names /dev/sdf to
+	// /dev/sdp.
+	MaxDataVolumes     = 11
+	DefaultPolicyName  = "appliance"
+	DefaultContentType = "text/plain"
 )
 
 // HookMode says where the lifecycle hook is declared.
@@ -156,13 +159,25 @@ type (
 
 	// InstanceArgs configures the launch template.
 	InstanceArgs struct {
-		// Type is required.
+		// Type is the instance type. Exactly one of Type and Types.
 		Type string
+		// Types are several instance types, in priority order: the group
+		// gets a mixed instances policy (on-demand, prioritized) whose
+		// overrides are these types, and the launch template names none.
+		// The types must share the image's architecture. A warm pool cannot
+		// be combined with a mixed instances policy (an Auto Scaling
+		// limit), so Types with WarmPool is refused.
+		Types []string
 		// HopLimit is the IMDS response hop limit, 1..64. Default 1. IMDSv2 is
 		// always required.
 		HopLimit int
 		// RootVolume nil leaves the image's root volume alone.
 		RootVolume *RootVolumeArgs
+		// Volumes are extra EBS volumes in the launch template, encrypted
+		// and deleted with the instance. A warm-pool stop and start keeps
+		// them; a replacement starts with empty ones. The instance formats
+		// and mounts them itself (a fragment of the consumer's).
+		Volumes []VolumeArgs
 		// PublicIP, when set, declares a network interface that associates
 		// (true) or does not associate (false) a public address; nil
 		// declares no interface and the group's subnets decide.
@@ -184,6 +199,25 @@ type (
 		KMSKeyID string
 	}
 
+	// VolumeArgs is one extra EBS volume. It is encrypted and deleted with
+	// the instance.
+	VolumeArgs struct {
+		// DeviceName is /dev/sdf to /dev/sdp (on Nitro instances the volume
+		// appears as an NVMe device; AL2023's udev rules link this name to
+		// it). Required.
+		DeviceName string
+		// SizeGiB is required, 1..16384.
+		SizeGiB int
+		// Type defaults to gp3.
+		Type string
+		// IOPS and ThroughputMiBps, 0 keeps the type's baseline (gp3: 3000
+		// IOPS and 125 MiB/s). Throughput is gp3 only.
+		IOPS            int
+		ThroughputMiBps int
+		// KMSKeyID, when set, encrypts with that key instead of the default.
+		KMSKeyID string
+	}
+
 	// GroupArgs configures the Auto Scaling group.
 	GroupArgs struct {
 		// Min, Max and Desired default to 1 (Max and Desired to Min).
@@ -201,6 +235,11 @@ type (
 		// EnabledMetrics are group metrics sent to CloudWatch (an alarm on
 		// GroupInServiceInstances needs it).
 		EnabledMetrics []string
+		// TerminationPolicies say which instance a scale-in removes, in
+		// order (OldestInstance, NewestInstance, OldestLaunchTemplate,
+		// ClosestToNextInstanceHour, AllocationStrategy, Default). Empty:
+		// the AWS default.
+		TerminationPolicies []string
 	}
 
 	// HookArgs is the EC2_INSTANCE_LAUNCHING hook.
@@ -223,6 +262,10 @@ type (
 		MinSize int
 		// MaxGroupPreparedCapacity nil: no cap beyond the group's maximum.
 		MaxGroupPreparedCapacity *int
+		// ReuseOnScaleIn returns an instance that scales in to the pool
+		// (stopped, its volumes kept) instead of terminating it, so a box
+		// with a local cache keeps it.
+		ReuseOnScaleIn bool
 	}
 
 	// RefreshArgs is the rolling instance refresh the launch template change

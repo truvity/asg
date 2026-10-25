@@ -3,6 +3,19 @@
 Entries are written for someone deciding whether to bump: what changed for
 them, and for anything breaking, what to do.
 
+## v0.4.0
+
+What a builder box with a local cache needs. Nothing changes for a consumer that sets none of the new fields: the existing resource sets and policies are byte for byte the same; the watchdog's script gains one check, so a box with the watchdog gets a new launch template version.
+
+- **`InstanceArgs.Volumes`: extra EBS volumes in the launch template**, `/dev/sdf` to `/dev/sdp`, encrypted and deleted with the instance, gp3 by default with optional IOPS, throughput and key. A warm-pool stop and start keeps them. The instance formats and mounts them itself.
+- **`InstanceArgs.Types`: several instance types.** The group gets a mixed instances policy (on-demand, prioritized, in the order given) and the launch template names no type. Exactly one of `Type` and `Types`. Auto Scaling does not allow a warm pool with a mixed instances policy, so `Types` with `WarmPool` is refused.
+- **`WarmPoolArgs.ReuseOnScaleIn`**: an instance that scales in goes back to the pool, stopped with its volumes, instead of being terminated.
+- **`GroupArgs.TerminationPolicies`**, such as `NewestInstance`, to keep the instance with the warm cache when the group scales in.
+- **`Contribution.GroupActions`**: Auto Scaling actions a module needs on the box's own group (`autoscaling:EnterStandby`, say). They join the `OwnGroup` statement on the group's ARN, or form it when the box has no hook; a wildcard is refused.
+- **New module `modules/ssmcert`**: a certificate, its key and an optional CA bundle from SSM SecureStrings into a directory under `/run` on every boot into service, with the versions it read. A timer compares them with the current versions every hour; on a change, inside a nightly window (02:00 to 05:00 UTC by default), the box enters Standby without decrementing the desired capacity, waits for the replacement and for its own connections to drain, loads the new files, restarts the daemon, waits for its ready check, leaves Standby (completing the launch hook that runs again) and sets the desired capacity back; the termination policy picks which instance leaves. A failed restart terminates only this instance, without changing the desired capacity. `InPlace` restarts without Standby once the port has been idle. The role gets the group actions it needs and `autoscaling:DescribeAutoScalingGroups`; the key's `kms:Decrypt` stays the consumer's statement.
+- **`modules/watchdog` honours a pause**: nothing happens before the Unix time in `/run/asg-watchdog/paused-until`, which `ssmcert` writes while it restarts the daemon on purpose.
+- The test renderer allows gzip, as a real plan does.
+
 ## v0.3.0
 
 - **New package `github.com/truvity/asg/front`: boxes behind a network load balancer.** `front.NewSharedNLB` creates an internal NLB with its security group (the group exists from creation, because an NLB made without one can never get one), cross-zone balancing and deletion protection on. `front.Attach` adds a box's target group, TCP listener and port-scoped ingress rules to it; `front.NewNLB` creates a dedicated NLB and returns the same `front.Front`. The port is the service's identity; TLS listeners are refused. See `docs/decisions/0004-front.md`.

@@ -15,8 +15,10 @@ replaced rather than repaired.
   resource, so turning one on changes the launch template and the policy, not
   the set of resources. Shipped: `watchdog` (replace an instance whose local
   checks keep failing), `ssh` (opkssh and a fixed host key), `selfregister`
-  (a DNS record for the in-service instance) and `tunnel` (a Cloudflare
-  tunnel connector that starts only in service).
+  (a DNS record for the in-service instance), `tunnel` (a Cloudflare
+  tunnel connector that starts only in service) and `ssmcert` (a TLS
+  certificate, key and CA from SSM into `/run`, with a nightly rotation that
+  takes the box out of service through Standby while its daemon restarts).
 - **`bootstrap`** composes the user-data from fragments: systemd units,
   files, the secrets an instance reads at boot (SSM parameters and S3
   objects, by exact name) and the readiness step that completes the
@@ -100,8 +102,10 @@ over tracked files and runs in the gate, with no exception.
 `v0.x`: the API may change in a minor release, and every change is in the
 [CHANGELOG](CHANGELOG.md). v0.1.0 is the code that was `pkg/appliance` and
 `pkg/bootstrap` in truvity/aws-structure, moved without a behaviour change;
-v0.2.0 adds the `module` package and the four modules above, and changes two
-defaults (see the CHANGELOG).
+v0.2.0 adds the `module` package and the first four modules, and changes two
+defaults (see the CHANGELOG); v0.3.0 adds `front`; v0.4.0 adds data volumes,
+several instance types, warm-pool reuse on scale-in, termination policies,
+module group actions and `ssmcert`.
 
 ## Development
 

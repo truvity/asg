@@ -348,6 +348,12 @@ write_files:
         curl -fsS -m 5 -H "X-aws-ec2-metadata-token: $t" "http://169.254.169.254/latest/meta-data/$1"
       }
 
+      # Another module restarting the service on purpose (ssmcert's rotation)
+      # pauses the watchdog until a time it writes here.
+      if [ -f "$STATE/paused-until" ] && [ "$(date +%s)" -lt "$(cat "$STATE/paused-until" 2>/dev/null || echo 0)" ]; then
+        exit 0
+      fi
+
       ok=1
       for f in "$LIB"/watch.d/*; do
         [ -e "$f" ] || continue

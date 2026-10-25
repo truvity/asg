@@ -147,3 +147,26 @@ func AssumeRolePolicy(partition string) string {
 
 	return string(b)
 }
+
+// withGroupActions adds the modules' actions on the box's own group to the
+// OwnGroup statement, or adds that statement when the box has no hook.
+func withGroupActions(st []Statement, actions []string, pc PolicyContext, group string) []Statement {
+	if len(actions) == 0 {
+		return st
+	}
+
+	for i := range st {
+		if st[i].Sid == SidOwnGroup {
+			st[i].Action = sortedUnique(st[i].Action, actions)
+
+			return st
+		}
+	}
+
+	return append(st, Statement{
+		Sid:      SidOwnGroup,
+		Effect:   "Allow",
+		Action:   sortedUnique(actions),
+		Resource: []string{GroupARN(pc.Partition, pc.Region, pc.Account, group)},
+	})
+}
