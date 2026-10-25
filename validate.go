@@ -370,6 +370,12 @@ func (a Args) validateGroup(name string) []error {
 		add("Group.GracePeriodSeconds %d is negative", g.GracePeriodSeconds)
 	}
 
+	for i, t := range g.TargetGroupARNs {
+		if t == nil {
+			add("Group.TargetGroupARNs[%d] is nil", i)
+		}
+	}
+
 	if h := a.Hook; h != nil {
 		if h.HeartbeatTimeoutSeconds < 30 || h.HeartbeatTimeoutSeconds > 7200 {
 			add("Hook.HeartbeatTimeoutSeconds %d: want 30..7200", h.HeartbeatTimeoutSeconds)

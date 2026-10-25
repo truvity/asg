@@ -3,6 +3,11 @@
 Entries are written for someone deciding whether to bump: what changed for
 them, and for anything breaking, what to do.
 
+## v0.3.0
+
+- **New package `github.com/truvity/asg/front`: boxes behind a network load balancer.** `front.NewSharedNLB` creates an internal NLB with its security group (the group exists from creation, because an NLB made without one can never get one), cross-zone balancing and deletion protection on. `front.Attach` adds a box's target group, TCP listener and port-scoped ingress rules to it; `front.NewNLB` creates a dedicated NLB and returns the same `front.Front`. The port is the service's identity; TLS listeners are refused. See `docs/decisions/0004-front.md`.
+- **`GroupArgs.TargetGroupARNs`.** The group registers in these target groups (`Front.TargetGroupARNs()`). With `HealthCheckType` ELB and the grace period, a failing target replaces the instance. Nothing changes for a group that sets none: the existing resource sets are byte for byte the same.
+
 ## v0.2.0
 
 What the status box (truvity/observability `pkg/statusbox/ec2`) needs to move from carried-over user-data to composed user-data, and nothing more.

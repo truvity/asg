@@ -194,6 +194,10 @@ type (
 		HealthCheckType string
 		// GracePeriodSeconds defaults to 300.
 		GracePeriodSeconds int
+		// TargetGroupARNs registers the group's instances in these target
+		// groups (front.Front.TargetGroupARNs). With HealthCheckType ELB a
+		// failing target health check replaces the instance.
+		TargetGroupARNs []pulumi.StringInput
 		// EnabledMetrics are group metrics sent to CloudWatch (an alarm on
 		// GroupInServiceInstances needs it).
 		EnabledMetrics []string

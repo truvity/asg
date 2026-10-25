@@ -1,0 +1,62 @@
+[
+  {
+    "inputs": {
+      "description": "Box front: admits clients per port",
+      "name": "box-front",
+      "tags": {
+        "Name": "box-front",
+        "env": "test"
+      },
+      "vpcId": "vpc-0example"
+    },
+    "name": "box-front",
+    "parent": "truvity:asg:SharedNLB::box-front",
+    "type": "aws:ec2/securityGroup:SecurityGroup"
+  },
+  {
+    "inputs": {
+      "enableCrossZoneLoadBalancing": true,
+      "enableDeletionProtection": true,
+      "internal": true,
+      "ipAddressType": "ipv4",
+      "loadBalancerType": "network",
+      "name": "box-front",
+      "securityGroups": [
+        "box-front_id"
+      ],
+      "subnets": [
+        "subnet-0a",
+        "subnet-0b",
+        "subnet-0c"
+      ],
+      "tags": {
+        "Name": "box-front",
+        "env": "test"
+      }
+    },
+    "name": "box-front",
+    "parent": "truvity:asg:SharedNLB::box-front",
+    "type": "aws:lb/loadBalancer:LoadBalancer"
+  },
+  {
+    "inputs": {
+      "cidrIpv4": "10.0.0.0/16",
+      "description": "Targets and health checks inside the VPC",
+      "ipProtocol": "-1",
+      "securityGroupId": "box-front_id",
+      "tags": {
+        "Name": "box-front-egress",
+        "env": "test"
+      }
+    },
+    "name": "box-front-egress",
+    "parent": "truvity:asg:SharedNLB::box-front",
+    "type": "aws:vpc/securityGroupEgressRule:SecurityGroupEgressRule"
+  },
+  {
+    "inputs": {},
+    "name": "box-front",
+    "parent": "pulumi:pulumi:Stack::p-s",
+    "type": "truvity:asg:SharedNLB"
+  }
+]

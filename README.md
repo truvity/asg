@@ -23,6 +23,12 @@ replaced rather than repaired.
   lifecycle hook. The IAM policy is derived from it, so the instance can
   read exactly what its user-data names and nothing else.
 
+- **`front`** puts boxes behind an internal network load balancer: a shared
+  NLB per environment (`front.NewSharedNLB`), a box's target group, TCP
+  listener and port-scoped security group rules on it (`front.Attach`), or an
+  NLB of its own (`front.NewNLB`). The port is the service's identity, and
+  only the NLB's security group reaches the targets.
+
 The rules the component enforces, whatever the caller passes:
 
 - IMDSv2 is always required;
