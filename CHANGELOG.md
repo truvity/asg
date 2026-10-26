@@ -3,6 +3,10 @@
 Entries are written for someone deciding whether to bump: what changed for
 them, and for anything breaking, what to do.
 
+## Unreleased (next patch)
+
+- **Fix: a group with a launch hook no longer waits for capacity.** The group was created without `wait_for_capacity_timeout`, so the provider's default of ten minutes applied. A group with a launch hook is by design not InService until the instance completes the hook, which can take longer than ten minutes (`HeartbeatTimeoutSeconds` of 1800, say). The create then timed out after the group existed but before the provider put the warm pool, and the state recorded a `warmPool` that was never made, so later updates never created it: no warm pool, silently. A group with `Hook` set now has `WaitForCapacityTimeout` `"0"`: the provider does not wait, and readiness is the hook's job. A group without a hook is unchanged and keeps the provider's wait, which is how a failed first launch shows up in the run. For an existing stack the update is one in-place change of the group, no replacement. A stack that lost its warm pool this way gets it back from a `pulumi refresh` followed by `pulumi up`; the `defaults`, `builder`, `composed`, `separate` and status box goldens gain the `waitForCapacityTimeout` input.
+
 ## v0.4.1
 
 - **Fix: `front` target groups have a name that fits.** A target group was autonamed from its logical name (`<component>-<listener>`) plus Pulumi's 8 characters, which passes 32, the AWS limit, as soon as the two names are longer than 24 together; the first real preview refused it ("plus 7 random chars is longer than maximum length 32"). The name is now the listener's name cut to 24 characters, `-`, and 7 hex digits of the sha256 of the protocol, the target port and the VPC, so it still changes with everything that replaces a target group. No target group was ever created by v0.3.0 or v0.4.0; the `front` goldens gain the `name` input.

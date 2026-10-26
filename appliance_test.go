@@ -113,6 +113,29 @@ func TestNoGroupStatementWithoutAHook(t *testing.T) {
 	}
 }
 
+func TestHookGatedGroupDoesNotWaitForCapacity(t *testing.T) {
+	for name, mode := range map[string]asg.HookMode{"inline": asg.HookInline, "separate": asg.HookSeparate} {
+		a := baseArgs(t)
+		a.Hook = &asg.HookArgs{Mode: mode}
+		a.WarmPool = &asg.WarmPoolArgs{}
+
+		g := mustRun(t, "router", a).find(t, "aws:autoscaling/group:Group", "router")
+		if g["waitForCapacityTimeout"] != "0" {
+			t.Errorf("%s hook: waitForCapacityTimeout %v, want \"0\": a group gated by a hook is not InService until the hook completes", name, g["waitForCapacityTimeout"])
+		}
+	}
+}
+
+func TestGroupWithoutAHookKeepsTheProviderCapacityWait(t *testing.T) {
+	a := baseArgs(t)
+	a.Hook = nil
+
+	g := mustRun(t, "router", a).find(t, "aws:autoscaling/group:Group", "router")
+	if v, ok := g["waitForCapacityTimeout"]; ok {
+		t.Errorf("waitForCapacityTimeout set without a hook: %v", v)
+	}
+}
+
 func TestObjectsAreUploadedAndGranted(t *testing.T) {
 	a := baseArgs(t)
 	rec := mustRun(t, "router", a)

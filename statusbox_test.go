@@ -115,7 +115,9 @@ func verbatim(t *testing.T) *bootstrap.Rendered {
 // TestStatusBoxStepAReproducesTheResourceSet is the zero-replace proof: with
 // the old user-data verbatim and the Compat hooks, the library asks for the
 // same resources, with the same types, names, parents and inputs, as the
-// module it replaces.
+// module it replaces, except that the group does not wait for capacity: it
+// has a launch hook, so the golden is the old set plus that one group input
+// (an in-place update, never a replacement).
 func TestStatusBoxStepAReproducesTheResourceSet(t *testing.T) {
 	a := statusBoxArgs(t, verbatim(t))
 	rec, err := run(t, "status", a)

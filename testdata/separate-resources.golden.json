@@ -30,6 +30,7 @@
       "vpcZoneIdentifiers": [
         "subnet-0a"
       ],
+      "waitForCapacityTimeout": "0",
       "warmPool": {
         "minSize": 0,
         "poolState": "Stopped"

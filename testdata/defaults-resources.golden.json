@@ -33,7 +33,8 @@
       ],
       "vpcZoneIdentifiers": [
         "subnet-0a"
-      ]
+      ],
+      "waitForCapacityTimeout": "0"
     },
     "name": "router",
     "parent": "truvity:asg:Box::router",
