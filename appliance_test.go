@@ -121,7 +121,7 @@ func TestHookGatedGroupDoesNotWaitForCapacity(t *testing.T) {
 
 		g := mustRun(t, "router", a).find(t, "aws:autoscaling/group:Group", "router")
 		if g["waitForCapacityTimeout"] != "0" {
-			t.Errorf("%s hook: waitForCapacityTimeout %v, want \"0\": a group gated by a hook is not InService until the hook completes", name, g["waitForCapacityTimeout"])
+			t.Errorf("%s hook: waitForCapacityTimeout %v, want \"0\" (the hook gates InService)", name, g["waitForCapacityTimeout"])
 		}
 	}
 }
