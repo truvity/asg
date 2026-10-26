@@ -42,6 +42,7 @@
         "subnet-0a",
         "subnet-0b"
       ],
+      "waitForCapacityTimeout": "0",
       "warmPool": {
         "maxGroupPreparedCapacity": 2,
         "minSize": 1,

@@ -45,6 +45,7 @@
       "vpcZoneIdentifiers": [
         "subnet-0a"
       ],
+      "waitForCapacityTimeout": "0",
       "warmPool": {
         "instanceReusePolicy": {
           "reuseOnScaleIn": true

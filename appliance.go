@@ -573,6 +573,14 @@ func (b *builder) group() error {
 		args.MetricsGranularity = pulumi.String("1Minute")
 	}
 
+	if a.Hook != nil {
+		// An instance is not InService until it completes the launch hook, which
+		// may take longer than the provider's ten-minute capacity wait. A timeout
+		// there fails the create before the warm pool is put, and the state then
+		// records a pool that was never made. Readiness is the hook's job.
+		args.WaitForCapacityTimeout = pulumi.String("0")
+	}
+
 	if h := a.Hook; h != nil && h.Mode == HookInline {
 		// Declared on the group, so it exists before the first instance launches.
 		args.InitialLifecycleHooks = autoscaling.GroupInitialLifecycleHookArray{
