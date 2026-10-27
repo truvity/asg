@@ -3,6 +3,10 @@
 Entries are written for someone deciding whether to bump: what changed for
 them, and for anything breaking, what to do.
 
+## v0.4.3
+
+- **Fix: no vulnerable `go-git` in the module graph.** asg does not use `go-git` itself; the Pulumi SDK's workspace package does, and it required `github.com/go-git/go-git/v6` `v6.0.0-alpha.4`, which has two published advisories (worktree operations may follow symlinks, and malicious reference names may modify files outside the reference storage), both fixed in `v6.0.0-alpha.5`. `github.com/pulumi/pulumi/sdk/v3` moves from `v3.264.0` to `v3.268.0`, the first release that requires `go-git` `v6.0.0-beta.1`. The module graph now selects `go-git` `v6.0.0-beta.1`, with `go-billy/v6`, `go-crypto` and `sha1cd` moving along with it. No asg code or output changes. A consumer that pins the Pulumi SDK below `v3.268.0` gets it raised to `v3.268.0` when it bumps asg; one that already requires a newer SDK sees no change.
+
 ## v0.4.2
 
 - **Fix: a group with a launch hook no longer waits for capacity.** The group was created without `wait_for_capacity_timeout`, so the provider's default of ten minutes applied. A group with a launch hook is by design not InService until the instance completes the hook, which can take longer than ten minutes (`HeartbeatTimeoutSeconds` of 1800, say). The create then timed out after the group existed but before the provider put the warm pool, and the state recorded a `warmPool` that was never made, so later updates never created it: no warm pool, silently. A group with `Hook` set now has `WaitForCapacityTimeout` `"0"`: the provider does not wait, and readiness is the hook's job. A group without a hook is unchanged and keeps the provider's wait, which is how a failed first launch shows up in the run. For an existing stack the update is one in-place change of the group, no replacement. A stack that lost its warm pool this way gets it back from a `pulumi refresh` followed by `pulumi up`; the `defaults`, `builder`, `composed`, `separate` and status box goldens gain the `waitForCapacityTimeout` input.
