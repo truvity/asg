@@ -62,6 +62,11 @@ func TestRefusals(t *testing.T) {
 		}, "EnabledMetrics"},
 		"flat plus type": {func(a *asg.Args) { a.Compat.Flat, a.Compat.ComponentType = true, "x:y:Z" }, "Compat.Flat"},
 		"bad role name":  {func(a *asg.Args) { a.Names.Role = strings.Repeat("r", 65) }, "Names.Role"},
+		"bad tag type":   {func(a *asg.Args) { a.Compat.LaunchTemplateTagTypes = []string{"instances"} }, "not a resource type"},
+		"tag type twice": {func(a *asg.Args) {
+			a.Compat.LaunchTemplateTagTypes = []string{"instance", "instance"}
+		}, "names \"instance\" twice"},
+		"trust policy not json": {func(a *asg.Args) { a.Compat.AssumeRolePolicy = "Allow ec2" }, "Compat.AssumeRolePolicy is not a JSON object"},
 	}
 
 	for name, c := range cases {

@@ -407,6 +407,16 @@ type (
 		// GroupTagsExcludeCommon leaves Args.Tags off the group's propagated
 		// tags (only Name and ManagedBy remain), as programs did before.
 		GroupTagsExcludeCommon bool
+		// LaunchTemplateTagTypes are the resource types the launch template
+		// tags at launch, in this order. Empty: instance and volume. A
+		// program that tagged only its instances lists "instance", so its
+		// launch template keeps its version and nothing is refreshed.
+		LaunchTemplateTagTypes []string
+		// AssumeRolePolicy, when set, is the role's trust policy, byte for
+		// byte, instead of [AssumeRolePolicy]: for a program whose own
+		// document says the same in another layout. It must be a JSON
+		// object.
+		AssumeRolePolicy string
 	}
 
 	// Logical overrides logical names. An empty field or nil func keeps the
