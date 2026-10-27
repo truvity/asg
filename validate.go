@@ -1,6 +1,7 @@
 package asg
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -818,6 +819,29 @@ func (a Args) validateCompat(name string) []error {
 
 	if c.Flat && len(c.ComponentAliases) > 0 {
 		add("Compat.Flat registers no component, so Compat.ComponentAliases has no use")
+	}
+
+	seen := map[string]bool{}
+
+	for _, t := range c.LaunchTemplateTagTypes {
+		switch t {
+		case "instance", "volume", "network-interface", "spot-instances-request":
+		default:
+			add("Compat.LaunchTemplateTagTypes: %q is not a resource type a launch template tags (instance, volume, network-interface, spot-instances-request)", t)
+		}
+
+		if seen[t] {
+			add("Compat.LaunchTemplateTagTypes names %q twice", t)
+		}
+
+		seen[t] = true
+	}
+
+	if p := c.AssumeRolePolicy; p != "" {
+		var doc map[string]any
+		if err := json.Unmarshal([]byte(p), &doc); err != nil {
+			add("Compat.AssumeRolePolicy is not a JSON object: %v", err)
+		}
 	}
 
 	for k := range c.Aliases {

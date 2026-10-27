@@ -3,6 +3,13 @@
 Entries are written for someone deciding whether to bump: what changed for
 them, and for anything breaking, what to do.
 
+## v0.5.0
+
+What the Tailscale subnet routers (truvity/tailscale `pkg/awsrouter`) need to move onto the library with no launch template version and no replacement. Nothing changes for a consumer that sets neither field: every golden is byte for byte the same.
+
+- **`Compat.LaunchTemplateTagTypes`: the resource types the launch template tags at launch**, in the order given. Empty keeps `instance` and `volume`. A program that tagged only its instances lists `instance`; without it, the move adds a `volume` tag specification, which is a new launch template version and so an instance refresh of every box. Unknown types and duplicates are refused.
+- **`Compat.AssumeRolePolicy`: the role's trust policy, byte for byte**, for a program whose own document says the same as `AssumeRolePolicy` in another layout (the routers' is compact JSON, the library's is indented). It must be a JSON object.
+
 ## v0.4.3
 
 - **Fix: no vulnerable `go-git` in the module graph.** asg does not use `go-git` itself; the Pulumi SDK's workspace package does, and it required `github.com/go-git/go-git/v6` `v6.0.0-alpha.4`, which has two published advisories (worktree operations may follow symlinks, and malicious reference names may modify files outside the reference storage), both fixed in `v6.0.0-alpha.5`. `github.com/pulumi/pulumi/sdk/v3` moves from `v3.264.0` to `v3.268.0`, the first release that requires `go-git` `v6.0.0-beta.1`. The module graph now selects `go-git` `v6.0.0-beta.1`, with `go-billy/v6`, `go-crypto` and `sha1cd` moving along with it. No asg code or output changes. A consumer that pins the Pulumi SDK below `v3.268.0` gets it raised to `v3.268.0` when it bumps asg; one that already requires a newer SDK sees no change.

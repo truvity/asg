@@ -258,9 +258,14 @@ func (b *builder) iam() error {
 		inline = append(inline, iam.RoleInlinePolicyArgs{Name: pulumi.String(p.Name), Policy: b.policyOutput(p.Policy)})
 	}
 
+	trust := AssumeRolePolicy(a.Partition)
+	if a.Compat.AssumeRolePolicy != "" {
+		trust = a.Compat.AssumeRolePolicy
+	}
+
 	roleArgs := &iam.RoleArgs{
 		Name:             pulumi.String(b.r.Role),
-		AssumeRolePolicy: pulumi.String(AssumeRolePolicy(a.Partition)),
+		AssumeRolePolicy: pulumi.String(trust),
 		InlinePolicies:   inline,
 		Tags:             b.tags(b.r.Role),
 	}
@@ -401,11 +406,8 @@ func (b *builder) compute() error {
 			HttpEndpoint:            pulumi.String("enabled"),
 			HttpPutResponseHopLimit: pulumi.Int(a.Instance.HopLimit),
 		},
-		TagSpecifications: ec2.LaunchTemplateTagSpecificationArray{
-			ec2.LaunchTemplateTagSpecificationArgs{ResourceType: pulumi.String("instance"), Tags: b.tags(b.r.Group)},
-			ec2.LaunchTemplateTagSpecificationArgs{ResourceType: pulumi.String("volume"), Tags: b.tags(b.r.Group)},
-		},
-		Tags: b.tags(b.r.LaunchTemplate),
+		TagSpecifications: b.tagSpecifications(),
+		Tags:              b.tags(b.r.LaunchTemplate),
 	}
 
 	// One type: the launch template names it. Several: the group's mixed
@@ -476,6 +478,26 @@ func (b *builder) compute() error {
 	b.out.LaunchTemplate = lt
 
 	return nil
+}
+
+// defaultLaunchTemplateTagTypes are the resource types the launch template
+// tags at launch unless Compat.LaunchTemplateTagTypes names others.
+var defaultLaunchTemplateTagTypes = []string{"instance", "volume"}
+
+// tagSpecifications tags what an instance launch creates with the group's
+// tags.
+func (b *builder) tagSpecifications() ec2.LaunchTemplateTagSpecificationArray {
+	types := b.a.Compat.LaunchTemplateTagTypes
+	if len(types) == 0 {
+		types = defaultLaunchTemplateTagTypes
+	}
+
+	out := make(ec2.LaunchTemplateTagSpecificationArray, len(types))
+	for i, t := range types {
+		out[i] = ec2.LaunchTemplateTagSpecificationArgs{ResourceType: pulumi.String(t), Tags: b.tags(b.r.Group)}
+	}
+
+	return out
 }
 
 func (b *builder) groupTags() autoscaling.GroupTagArray {
