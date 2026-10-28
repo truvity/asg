@@ -85,6 +85,76 @@ a.Data = &asg.DataVolumeArgs{AvailabilityZone: "eu-west-1a", SizeGiB: 500, KMSKe
 
 See the package documentation for the details.
 
+## Stopped on demand: a wake proxy in front of single boxes
+
+A big box that is idle most of the day can be kept **stopped**. A small
+always-on proxy (`cmd/wake-proxy`, ADR
+[0006](docs/decisions/0006-wake-proxy.md)) sits in front of it: a client
+connects to the proxy through the NLB, the proxy starts the stopped instance,
+holds the client's TCP connection until the port accepts (up to a wake
+timeout, default 180 s), pipes the stream through (mutual TLS stays end to
+end; the proxy never terminates TLS) and stops the instance after 20 minutes
+without a connection. Pulumi never owns the run state.
+
+Wire it in three parts.
+
+1. **The boxes**: `Args.Single` plus `Args.Data`, as above, each with a tag
+   the proxy selects it by (`RoleTagKey`/`RoleTagValue`, one distinct value
+   per box; exactly one instance may match). The box's security group admits
+   the **proxy's** security group on the service port, not the NLB's:
+
+   ```go
+   builder.Security.Ingress = []asg.Rule{{
+       Description:  "service from the wake proxy",
+       FromPort:     1234, ToPort: 1234,
+       SourceGroups: []pulumi.StringInput{proxySG.ID()},
+   }}
+   ```
+
+   `Single.TargetGroups` stays empty: the box is no longer a target of
+   anything.
+
+2. **The proxy**: an ordinary appliance in the Auto Scaling mode (desired 1
+   and one stopped warm-pool spare, a launch hook, a `t4g.nano`-class type),
+   with the `modules/wakeproxy` module in its plan. `Binary` is the pinned
+   release build per architecture: `wakeproxy.ReleaseURL("v0.6.0", "arm64")`
+   and the digest from the release's `checksums.txt`.
+
+   ```go
+   proxy := wakeproxy.New(wakeproxy.Args{
+       Binary: map[string]bootstrap.Source{"arm64": {URL: wakeproxy.ReleaseURL(version, "arm64"), SHA256: digest}},
+       Region: region,
+       Routes: []wakeproxy.Route{
+           {Name: "arm64", ListenPort: 9001, TargetPort: 1234, Target: wakeproxy.Selector{TagKey: "role", TagValue: "builder-arm64"}},
+           {Name: "amd64", ListenPort: 9002, TargetPort: 1234, Target: wakeproxy.Selector{TagKey: "role", TagValue: "builder-amd64"}},
+       },
+       Account:    account,                 // set it to get the role statements below
+       KMSKeyARNs: []string{dataKeyARN},    // only if the builders' volumes use a customer-managed key
+   })
+   ```
+
+   With `Account` set the module adds the statements of
+   `wakeproxy.Statements`: `ec2:DescribeInstances` on `*`;
+   `ec2:StartInstances`/`ec2:StopInstances` and `ec2:CreateTags` (activity tag
+   key only) on instances that carry the builder's tag, by condition; and,
+   for a customer-managed key, `kms:CreateGrant` (AWS resources only),
+   `kms:Decrypt` and `kms:GenerateDataKeyWithoutPlaintext`. Without the key
+   statements, starting a box with an encrypted volume leaves it in
+   `pending`. Leave `Account` empty to call `Statements` yourself.
+
+3. **The front**: `front.Attach` one `front.Listener` per route on the NLB:
+   `Port` is the builder's registered port (its identity on the NLB),
+   `TargetPort` the route's `ListenPort`, `HealthCheck` is HTTP, path
+   `/healthz`, on the proxy's `HealthPort` (default 8080). That check is 200
+   whenever the proxy runs, whether or not a builder is up. Set
+   `IdleTimeoutSeconds` above the wake timeout (the NLB's default of 350 is
+   enough for 180) and above the longest quiet period of a build stream. Put
+   `Front.TargetIngress()` in the proxy's own security group. The NLB's target
+   group **moves from the builder to the proxy**.
+
+The first connection after an idle period waits for the wake (about 40 to 60
+seconds); the client needs a retry loop longer than its own connect timeout.
+
 ## Install and a worked example
 
 ```sh
