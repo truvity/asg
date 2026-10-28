@@ -2,10 +2,30 @@ version: 2
 
 project_name: asg
 
-# A Go library: nothing to build. The release publishes the tag's GitHub
-# release and its changelog; consumers take the module through go.mod.
+# A Go library, plus one binary: the wake proxy (docs/decisions/0006). The
+# library is the tag (consumers take it through go.mod); the binary is a raw
+# file per CPU architecture on the GitHub release, named
+# wake-proxy_<version>_linux_<arch>, with its digests in checksums.txt.
+# modules/wakeproxy.ReleaseURL builds the URL; the box pins the sha256.
 builds:
-  - skip: true
+  - id: wake-proxy
+    main: ./cmd/wake-proxy
+    binary: wake-proxy
+    env:
+      - CGO_ENABLED=0
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: ["-s -w"]
+
+archives:
+  - id: wake-proxy
+    ids: [wake-proxy]
+    formats: [binary]
+    name_template: "wake-proxy_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
 
 changelog:
   sort: asc
