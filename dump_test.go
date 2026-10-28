@@ -100,7 +100,13 @@ func (r *recorder) NewResource(args pulumi.MockResourceArgs) (string, resource.P
 		parent = urnTail(args.RegisterRPC.GetParent())
 	}
 
-	r.all = append(r.all, map[string]any{"type": args.TypeToken, "name": args.Name, "parent": parent, "inputs": norm(in)})
+	rec := map[string]any{"type": args.TypeToken, "name": args.Name, "parent": parent, "inputs": norm(in)}
+
+	if o := resourceOptions(args); len(o) > 0 {
+		rec["options"] = o
+	}
+
+	r.all = append(r.all, rec)
 
 	out := args.Inputs.Copy()
 	if args.TypeToken == "aws:ec2/launchTemplate:LaunchTemplate" {
@@ -110,12 +116,43 @@ func (r *recorder) NewResource(args pulumi.MockResourceArgs) (string, resource.P
 	return args.Name + "_id", out, nil
 }
 
+// resourceOptions are the options a resource was registered with that change
+// what happens to it, if any is set.
+func resourceOptions(args pulumi.MockResourceArgs) map[string]any {
+	o := map[string]any{}
+	req := args.RegisterRPC
+
+	if req == nil {
+		return o
+	}
+
+	for k, v := range map[string]bool{
+		"deleteBeforeReplace": req.GetDeleteBeforeReplace(),
+		"protect":             req.GetProtect(),
+		"retainOnDelete":      req.GetRetainOnDelete(),
+	} {
+		if v {
+			o[k] = true
+		}
+	}
+
+	if rc := req.GetReplaceOnChanges(); len(rc) > 0 {
+		o["replaceOnChanges"] = rc
+	}
+
+	return o
+}
+
 func (r *recorder) Call(args pulumi.MockCallArgs) (resource.PropertyMap, error) {
 	switch args.Token {
 	case "aws:index/getRegion:getRegion":
 		return resource.PropertyMap{"region": resource.NewStringProperty(testRegion), "name": resource.NewStringProperty(testRegion)}, nil
 	case "aws:index/getCallerIdentity:getCallerIdentity":
 		return resource.PropertyMap{"accountId": resource.NewStringProperty(testAccount)}, nil
+	case "aws:ec2/getSubnet:getSubnet":
+		// subnet-0a is in zone a, subnet-0b in zone b.
+		id := args.Args["id"].StringValue()
+		return resource.PropertyMap{"id": args.Args["id"], "availabilityZone": resource.NewStringProperty(testRegion + id[len(id)-1:])}, nil
 	case "aws:ssm/getParameter:getParameter":
 		return resource.PropertyMap{"name": args.Args["name"], "value": resource.NewStringProperty("ami-0example")}, nil
 	case "aws:ec2/getAmi:getAmi":
@@ -141,6 +178,25 @@ func (r *recorder) dump(t *testing.T) []byte {
 	}
 
 	return sanitize(append(b, '\n'))
+}
+
+// options are the recorded options of a resource.
+func (r *recorder) options(t *testing.T, typ, name string) map[string]any {
+	t.Helper()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for _, x := range r.all {
+		if x["type"] == typ && x["name"] == name {
+			o, _ := x["options"].(map[string]any)
+
+			return o
+		}
+	}
+
+	t.Fatalf("no %s named %s", typ, name)
+
+	return nil
 }
 
 func (r *recorder) find(t *testing.T, typ, name string) map[string]any {

@@ -29,7 +29,15 @@ type Rendered struct {
 func Render(t *testing.T, c module.Contribution) Rendered {
 	t.Helper()
 
-	p, err := bootstrap.New(bootstrap.Options{Lifecycle: Lifecycle})
+	return RenderWith(t, c, bootstrap.Options{Lifecycle: Lifecycle})
+}
+
+// RenderWith is like Render with the plan's options given, such as none for
+// the plan of a single instance (no lifecycle hook).
+func RenderWith(t *testing.T, c module.Contribution, opts bootstrap.Options) Rendered {
+	t.Helper()
+
+	p, err := bootstrap.New(opts)
 	if err != nil {
 		t.Fatal(err)
 	}

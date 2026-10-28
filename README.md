@@ -13,7 +13,7 @@ replaced rather than repaired.
   returns data (user-data fragments, IAM statements, SSM parameter names,
   ingress rules, the steps and checks of the on-box lifecycle) and never a
   resource, so turning one on changes the launch template and the policy, not
-  the set of resources. Shipped: `watchdog` (replace an instance whose local
+  the set of resources. Shipped: `datavolume` (format once and mount a persistent EBS volume), `watchdog` (replace an instance whose local
   checks keep failing), `ssh` (opkssh and a fixed host key), `selfregister`
   (a DNS record for the in-service instance), `tunnel` (a Cloudflare
   tunnel connector that starts only in service) and `ssmcert` (a TLS
@@ -54,6 +54,36 @@ policy is derived from the plan, so an instance can read what its user-data
 names and nothing else. A launch lifecycle hook with a default of ABANDON
 means an instance that never finished booting is replaced, never put in
 service half configured.
+
+## One instance with a persistent volume
+
+For a box that is started and stopped on demand, `Args.Single` makes the
+appliance one plain EC2 instance (no Auto Scaling group, hook or warm pool),
+and `Args.Data` gives it an encrypted EBS volume that outlives it:
+
+```go
+a.UserData = plan // rendered WITHOUT bootstrap.Options.Lifecycle
+a.Instance.Type = "m7g.xlarge"
+a.Single = &asg.SingleArgs{
+    SubnetID:     subnet.ID(),          // must be in Data.AvailabilityZone
+    RoleTagKey:   "role", RoleTagValue: "builder", // how the proxy finds it
+}
+a.Data = &asg.DataVolumeArgs{AvailabilityZone: "eu-west-1a", SizeGiB: 500, KMSKeyID: keyARN}
+// in the plan: datavolume.New(datavolume.Args{MountPoint: "/var/lib/cache", Units: []string{"buildkitd.service"}})
+```
+
+- A new image or user-data replaces the instance (deleted first, so the
+  volume is free); the replacement comes up running. The volume is detached
+  from the old instance after it is stopped, and attached to the new one.
+- Pulumi does not manage the run state: stop and start the instance from
+  outside and the next preview shows no diff.
+- The volume is `protect`ed and retained on delete. Removing it takes a
+  deliberate `pulumi state unprotect` and a manual delete.
+- Refused with `Single`: `Hook`, `WarmPool`, `Refresh`, `Instance.Types`,
+  `Alarms`, every `Group` field, `Instance.PublicIP`, module group actions
+  and in-service steps.
+
+See the package documentation for the details.
 
 ## Install and a worked example
 

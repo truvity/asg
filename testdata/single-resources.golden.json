@@ -1,0 +1,193 @@
+[
+  {
+    "inputs": {
+      "availabilityZone": "eu-west-1a",
+      "encrypted": true,
+      "iops": 6000,
+      "size": 500,
+      "tags": {
+        "ManagedBy": "pulumi",
+        "Name": "builder-data",
+        "builder-role": "ci-builder"
+      },
+      "throughput": 250,
+      "type": "gp3"
+    },
+    "name": "builder-data",
+    "options": {
+      "protect": true,
+      "retainOnDelete": true
+    },
+    "parent": "truvity:asg:Box::builder",
+    "type": "aws:ebs/volume:Volume"
+  },
+  {
+    "inputs": {
+      "launchTemplate": {
+        "id": "builder_id",
+        "version": "3"
+      },
+      "subnetId": "subnet-0a",
+      "tags": {
+        "ManagedBy": "pulumi",
+        "Name": "builder",
+        "builder-role": "ci-builder"
+      }
+    },
+    "name": "builder",
+    "options": {
+      "deleteBeforeReplace": true,
+      "replaceOnChanges": [
+        "launchTemplate"
+      ]
+    },
+    "parent": "truvity:asg:Box::builder",
+    "type": "aws:ec2/instance:Instance"
+  },
+  {
+    "inputs": {
+      "blockDeviceMappings": [
+        {
+          "deviceName": "/dev/xvda",
+          "ebs": {
+            "deleteOnTermination": "true",
+            "encrypted": "true",
+            "volumeSize": 20,
+            "volumeType": "gp3"
+          }
+        }
+      ],
+      "iamInstanceProfile": {
+        "arn": ""
+      },
+      "imageId": "ami-0example",
+      "instanceType": "m7g.xlarge",
+      "metadataOptions": {
+        "httpEndpoint": "enabled",
+        "httpPutResponseHopLimit": 1,
+        "httpTokens": "required"
+      },
+      "name": "builder",
+      "tagSpecifications": [
+        {
+          "resourceType": "instance",
+          "tags": {
+            "ManagedBy": "pulumi",
+            "Name": "builder"
+          }
+        },
+        {
+          "resourceType": "volume",
+          "tags": {
+            "ManagedBy": "pulumi",
+            "Name": "builder"
+          }
+        }
+      ],
+      "tags": {
+        "ManagedBy": "pulumi",
+        "Name": "builder"
+      },
+      "updateDefaultVersion": true,
+      "userData": "\u003cuser-data\u003e",
+      "vpcSecurityGroupIds": [
+        "builder_id"
+      ]
+    },
+    "name": "builder",
+    "parent": "truvity:asg:Box::builder",
+    "type": "aws:ec2/launchTemplate:LaunchTemplate"
+  },
+  {
+    "inputs": {
+      "description": "builder appliance",
+      "egress": [
+        {
+          "cidrBlocks": [
+            "0.0.0.0/0"
+          ],
+          "fromPort": 0,
+          "protocol": "-1",
+          "toPort": 0
+        }
+      ],
+      "namePrefix": "builder-",
+      "tags": {
+        "ManagedBy": "pulumi",
+        "Name": "builder"
+      },
+      "vpcId": "vpc-0example"
+    },
+    "name": "builder",
+    "parent": "truvity:asg:Box::builder",
+    "type": "aws:ec2/securityGroup:SecurityGroup"
+  },
+  {
+    "inputs": {
+      "deviceName": "/dev/sdf",
+      "instanceId": "builder_id",
+      "stopInstanceBeforeDetaching": true,
+      "volumeId": "builder-data_id"
+    },
+    "name": "builder-data-attachment",
+    "options": {
+      "deleteBeforeReplace": true
+    },
+    "parent": "truvity:asg:Box::builder",
+    "type": "aws:ec2/volumeAttachment:VolumeAttachment"
+  },
+  {
+    "inputs": {
+      "name": "builder",
+      "role": "builder",
+      "tags": {
+        "ManagedBy": "pulumi",
+        "Name": "builder"
+      }
+    },
+    "name": "builder",
+    "parent": "truvity:asg:Box::builder",
+    "type": "aws:iam/instanceProfile:InstanceProfile"
+  },
+  {
+    "inputs": {
+      "assumeRolePolicy": "{\n  \"Statement\": [\n    {\n      \"Action\": \"sts:AssumeRole\",\n      \"Effect\": \"Allow\",\n      \"Principal\": {\n        \"Service\": \"ec2.amazonaws.com\"\n      }\n    }\n  ],\n  \"Version\": \"2012-10-17\"\n}",
+      "inlinePolicies": [
+        {
+          "name": "appliance",
+          "policy": "{\n  \"Version\": \"2012-10-17\",\n  \"Statement\": [\n    {\n      \"Sid\": \"ReadParameters\",\n      \"Effect\": \"Allow\",\n      \"Action\": [\n        \"ssm:GetParameter\"\n      ],\n      \"Resource\": [\n        \"arn:@PARTITION@:ssm:eu-west-1:@ACCOUNT@:parameter/acme/router/auth\",\n        \"arn:@PARTITION@:ssm:eu-west-1:@ACCOUNT@:parameter/acme/router/key\"\n      ]\n    },\n    {\n      \"Sid\": \"ReadObjects\",\n      \"Effect\": \"Allow\",\n      \"Action\": [\n        \"s3:GetObject\"\n      ],\n      \"Resource\": [\n        \"arn:@PARTITION@:s3:::acme-config/router/config/\u003csha256\u003e.conf\"\n      ]\n    }\n  ]\n}"
+        }
+      ],
+      "name": "builder",
+      "tags": {
+        "ManagedBy": "pulumi",
+        "Name": "builder"
+      }
+    },
+    "name": "builder",
+    "parent": "truvity:asg:Box::builder",
+    "type": "aws:iam/role:Role"
+  },
+  {
+    "inputs": {
+      "bucket": "acme-config",
+      "content": "\u003ccontent\u003e",
+      "contentType": "text/plain",
+      "key": "router/config/\u003csha256\u003e.conf",
+      "serverSideEncryption": "AES256",
+      "tags": {
+        "ManagedBy": "pulumi",
+        "Name": "builder-object-fe3209d6d4f5"
+      }
+    },
+    "name": "builder-object-fe3209d6d4f5",
+    "parent": "truvity:asg:Box::builder",
+    "type": "aws:s3/bucketObjectv2:BucketObjectv2"
+  },
+  {
+    "inputs": {},
+    "name": "builder",
+    "parent": "pulumi:pulumi:Stack::p-s",
+    "type": "truvity:asg:Box"
+  }
+]

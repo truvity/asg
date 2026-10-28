@@ -3,6 +3,15 @@
 Entries are written for someone deciding whether to bump: what changed for
 them, and for anything breaking, what to do.
 
+## Unreleased
+
+A plain-instance mode with a persistent data volume, for a box that something else starts and stops on demand. Nothing changes for a consumer that sets neither `Single` nor `Data`: every existing golden is byte for byte the same.
+
+- **`Args.Single`: one `aws.ec2.Instance` instead of an Auto Scaling group.** Same launch template, role, instance profile, security group, image lookup, S3 objects and user-data. No group, lifecycle hook, warm pool, refresh or target group by the group. A launch template change (new image, new user-data) replaces the instance, deleted before created. The run state is not managed (no instance state resource), so a stopped instance shows no diff; a replacement comes up running. `SingleArgs` takes the `SubnetID`, a `RoleTagKey`/`RoleTagValue` tag the instance carries so that a proxy can find it, and optional `TargetGroups` (default none). `Appliance` gains `Instance`, `DataVolume`, `DataAttachment` and `TargetAttachments`; `Logical` gains `Instance`, `DataVolume`, `DataAttachment` and `TargetGroupAttachment`.
+- **`Args.Single` refuses what needs a group:** `Hook`, `WarmPool`, `Refresh`, `Instance.Types`, `Alarms`, `Group.Min/Max/Desired` and the other `Group` fields, `Instance.PublicIP`, module `GroupActions`, in-service steps and ready checks, and user-data rendered with `bootstrap.Options.Lifecycle` (`bootstrap.Rendered.HasLifecycle` is new). The role gets no autoscaling permission.
+- **`Args.Data`: a persistent, encrypted EBS volume** (gp3 by default, size, IOPS, throughput, optional KMS key) in one availability zone, created `protect`ed and `retainOnDelete`, attached with an `aws.ec2.VolumeAttachment` that is deleted first (the instance is stopped before the detach) and recreated on the new instance on a replacement. A subnet in another zone than `Data.AvailabilityZone` fails the update.
+- **`modules/datavolume`: mount the volume from the user-data.** A oneshot unit `asg-data-volume.service` waits for the device (by its attached name, or by `VolumeID`), makes a file system only on a device with no signature at all, and mounts it on every boot; `Units` get `Requires=`/`After=` on it. It needs no lifecycle hook.
+
 ## v0.5.0
 
 What the Tailscale subnet routers (truvity/tailscale `pkg/awsrouter`) need to move onto the library with no launch template version and no replacement. Nothing changes for a consumer that sets neither field: every golden is byte for byte the same.

@@ -42,6 +42,10 @@ type (
 		SSMParameters []string
 		// Size is len(UserData).
 		Size int
+		// HasLifecycle says the plan was built with Options.Lifecycle, so the
+		// instance completes an Auto Scaling launch hook when it is ready.
+		// An appliance without a group (asg.SingleArgs) refuses such a plan.
+		HasLifecycle bool
 	}
 
 	cloudConfig struct {
@@ -80,7 +84,10 @@ func (p *Plan) Render() (*Rendered, error) {
 				return nil, p.tooBig(len(out), len(text))
 			}
 
-			return &Rendered{UserData: out, CloudConfig: text, Gzipped: gz, Objects: objs, SSMParameters: sortedKeys(p.params), Size: len(out)}, nil
+			return &Rendered{
+				UserData: out, CloudConfig: text, Gzipped: gz, Objects: objs, SSMParameters: sortedKeys(p.params), Size: len(out),
+				HasLifecycle: p.opts.Lifecycle != nil,
+			}, nil
 		}
 		spilled[candidates[0]] = true
 		candidates = candidates[1:]

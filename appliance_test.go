@@ -17,8 +17,16 @@ import (
 func composed(t *testing.T) *bootstrap.Rendered {
 	t.Helper()
 
+	return composedWith(t, asg.Names{}.Resolve("router").Lifecycle())
+}
+
+// composedWith is composed with the lifecycle given (nil: none, as a single
+// instance needs).
+func composedWith(t *testing.T, l *bootstrap.Lifecycle) *bootstrap.Rendered {
+	t.Helper()
+
 	p, err := bootstrap.New(bootstrap.Options{
-		Lifecycle: asg.Names{}.Resolve("router").Lifecycle(),
+		Lifecycle: l,
 		Objects:   &bootstrap.ObjectStore{Bucket: "acme-config", Prefix: "router"},
 	})
 	if err != nil {
