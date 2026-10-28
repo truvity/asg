@@ -3,6 +3,10 @@
 Entries are written for someone deciding whether to bump: what changed for
 them, and for anything breaking, what to do.
 
+## Unreleased
+
+- **Fix: `cmd/wake-proxy` wakes on the client's first byte, not on connect.** A TCP health probe that connected and closed without sending anything (every ~30 s) woke a stopped target and kept refreshing the activity tag, so the idle stop never fired. A route now waits for the first byte (default `firstByteTimeout` 30 s) before it counts the connection, writes the tag or wakes anything; a client that closes or stays silent is dropped with no side effect and counted in the new `wake_proxy_connections_without_data_total`. The byte is forwarded upstream first. Set `wakeOn` to `connect` (`wakeproxy.Route.WakeOn`) on a route to keep the old behaviour for server-speaks-first protocols. `wakeproxy.Route` gains `WakeOn` (`data`, the default, or `connect`) and `FirstByteTimeout`; the rendered configuration now carries both per route. A client that connects and waits for the server to speak first, on a route left at the default, is closed after the timeout: set `WakeOn: "connect"` on it.
+
 ## v0.6.0
 
 A plain-instance mode with a persistent data volume, for a box that something else starts and stops on demand. Nothing changes for a consumer that sets neither `Single` nor `Data`: every existing golden is byte for byte the same.
