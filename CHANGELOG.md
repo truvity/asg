@@ -3,7 +3,7 @@
 Entries are written for someone deciding whether to bump: what changed for
 them, and for anything breaking, what to do.
 
-## Unreleased
+## v0.6.0
 
 A plain-instance mode with a persistent data volume, for a box that something else starts and stops on demand. Nothing changes for a consumer that sets neither `Single` nor `Data`: every existing golden is byte for byte the same.
 
