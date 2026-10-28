@@ -3,6 +3,10 @@
 Entries are written for someone deciding whether to bump: what changed for
 them, and for anything breaking, what to do.
 
+## Unreleased
+
+- **`front.Registry`: check a shared NLB's port registry before any program runs.** `Registry{Listeners, Names}.Validate()` holds a consumer's configuration (service name to port, optional DNS name to service) to what `NewSharedNLB` and `Attach` need: listener names the NLB accepts, ports in 1..65535, one service per port, at most `MaxListeners`, and well-formed DNS names that serve a listener of the registry. Every finding is reported at once. Nothing changes for a consumer that does not call it.
+
 ## v0.6.0
 
 A plain-instance mode with a persistent data volume, for a box that something else starts and stops on demand. Nothing changes for a consumer that sets neither `Single` nor `Data`: every existing golden is byte for byte the same.
