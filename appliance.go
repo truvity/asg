@@ -9,8 +9,10 @@ import (
 	"github.com/pulumi/pulumi-aws/sdk/v7/go/aws"
 	"github.com/pulumi/pulumi-aws/sdk/v7/go/aws/autoscaling"
 	"github.com/pulumi/pulumi-aws/sdk/v7/go/aws/cloudwatch"
+	"github.com/pulumi/pulumi-aws/sdk/v7/go/aws/ebs"
 	"github.com/pulumi/pulumi-aws/sdk/v7/go/aws/ec2"
 	"github.com/pulumi/pulumi-aws/sdk/v7/go/aws/iam"
+	"github.com/pulumi/pulumi-aws/sdk/v7/go/aws/lb"
 	"github.com/pulumi/pulumi-aws/sdk/v7/go/aws/s3"
 	"github.com/pulumi/pulumi-aws/sdk/v7/go/aws/ssm"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -25,8 +27,17 @@ type Appliance struct {
 
 	// Names are the physical names after defaults.
 	Names Resolved
-	// Group is the Auto Scaling group.
+	// Group is the Auto Scaling group; nil in single-instance mode.
 	Group *autoscaling.Group
+	// Instance is the plain EC2 instance of single-instance mode
+	// (Args.Single); nil with a group.
+	Instance *ec2.Instance
+	// DataVolume and DataAttachment are the persistent volume of Args.Data
+	// and its attachment to Instance; nil without Data.
+	DataVolume     *ebs.Volume
+	DataAttachment *ec2.VolumeAttachment
+	// TargetAttachments register Instance in Single.TargetGroups.
+	TargetAttachments []*lb.TargetGroupAttachment
 	// LaunchTemplate carries the image, the user-data and IMDSv2.
 	LaunchTemplate *ec2.LaunchTemplate
 	// Role and InstanceProfile are the instance's identity.
@@ -110,7 +121,7 @@ func New(ctx *pulumi.Context, name string, args *Args, opts ...pulumi.ResourceOp
 	b.region = aws.GetRegionOutput(ctx, aws.GetRegionOutputArgs{}, b.invokeOptions()...).Region()
 	b.account = aws.GetCallerIdentityOutput(ctx, aws.GetCallerIdentityOutputArgs{}, b.invokeOptions()...).AccountId()
 
-	for _, step := range []func() error{b.iam, b.network, b.objects, b.compute, b.group, b.alarms} {
+	for _, step := range []func() error{b.iam, b.network, b.objects, b.compute, b.placement, b.alarms} {
 		if err := step(); err != nil {
 			return nil, fmt.Errorf("appliance: New(%q, ...): %w", name, err)
 		}
@@ -167,6 +178,13 @@ func (b *builder) logical() Logical {
 	pick(&l.LaunchTemplate, b.name)
 	pick(&l.Group, b.name)
 	pick(&l.Hook, b.name+"-hook")
+	pick(&l.Instance, b.name)
+	pick(&l.DataVolume, b.name+"-data")
+	pick(&l.DataAttachment, b.name+"-data-attachment")
+
+	if l.TargetGroupAttachment == nil {
+		l.TargetGroupAttachment = func(i int) string { return fmt.Sprintf("%s-target-%d", b.name, i) }
+	}
 
 	if l.ManagedPolicy == nil {
 		l.ManagedPolicy = func(i int, _ string) string { return fmt.Sprintf("%s-managed-%d", b.name, i) }
@@ -523,6 +541,16 @@ func (b *builder) groupTags() autoscaling.GroupTagArray {
 	}
 
 	return out
+}
+
+// placement puts the launch template to work: an Auto Scaling group, or in
+// single-instance mode one plain instance.
+func (b *builder) placement() error {
+	if b.a.Single != nil {
+		return b.single()
+	}
+
+	return b.group()
 }
 
 func (b *builder) group() error {

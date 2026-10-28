@@ -58,24 +58,26 @@ func (a Args) withDefaults(name string) Args {
 		a.Partition = DefaultPartition
 	}
 
-	if a.Group.Min == 0 && a.Group.Max == 0 && a.Group.Desired == 0 {
-		a.Group.Min = 1
-	}
+	if a.Single == nil {
+		if a.Group.Min == 0 && a.Group.Max == 0 && a.Group.Desired == 0 {
+			a.Group.Min = 1
+		}
 
-	if a.Group.Max == 0 {
-		a.Group.Max = max(a.Group.Min, a.Group.Desired)
-	}
+		if a.Group.Max == 0 {
+			a.Group.Max = max(a.Group.Min, a.Group.Desired)
+		}
 
-	if a.Group.Desired == 0 {
-		a.Group.Desired = a.Group.Min
-	}
+		if a.Group.Desired == 0 {
+			a.Group.Desired = a.Group.Min
+		}
 
-	if a.Group.HealthCheckType == "" {
-		a.Group.HealthCheckType = "EC2"
-	}
+		if a.Group.HealthCheckType == "" {
+			a.Group.HealthCheckType = "EC2"
+		}
 
-	if a.Group.GracePeriodSeconds == 0 {
-		a.Group.GracePeriodSeconds = DefaultGracePeriod
+		if a.Group.GracePeriodSeconds == 0 {
+			a.Group.GracePeriodSeconds = DefaultGracePeriod
+		}
 	}
 
 	if a.Instance.HopLimit == 0 {
@@ -110,6 +112,19 @@ func (a Args) withDefaults(name string) Args {
 		}
 
 		a.Instance.Volumes = vs
+	}
+
+	if d := a.Data; d != nil {
+		cp := *d
+		if cp.DeviceName == "" {
+			cp.DeviceName = DefaultDataDevice
+		}
+
+		if cp.Type == "" {
+			cp.Type = DefaultVolumeType
+		}
+
+		a.Data = &cp
 	}
 
 	if h := a.Hook; h != nil {
@@ -227,10 +242,22 @@ func (a Args) validate(name string) error {
 	errs = append(errs, a.validateUserData(name)...)
 	errs = append(errs, a.validateImage(name)...)
 	errs = append(errs, a.validateCompute(name)...)
-	errs = append(errs, a.validateGroup(name)...)
+	if a.Single != nil {
+		errs = append(errs, a.validateSingle(name)...)
+	} else {
+		errs = append(errs, a.validateGroup(name)...)
+
+		if a.Data != nil {
+			errs = append(errs, fmt.Errorf("appliance %q: Data is a persistent volume for a single instance: set Single", name))
+		}
+	}
+
 	errs = append(errs, a.validateIAM(name)...)
 	errs = append(errs, a.validateSecurity(name)...)
-	errs = append(errs, a.validateAlarms(name)...)
+	if a.Single == nil {
+		errs = append(errs, a.validateAlarms(name)...)
+	}
+
 	errs = append(errs, a.validateCompat(name)...)
 
 	return errors.Join(errs...)

@@ -46,8 +46,37 @@
 // security group rules, and the steps and checks of the on-box lifecycle in
 // one piece. [Collect] merges modules into a [Contribution] that
 // [Args.Contribution] takes and that [Contribution.AddTo] feeds to the plan.
-// The Pulumi-free package module defines the types and modules/ ships four:
-// watchdog, ssh, selfregister and tunnel.
+// The Pulumi-free package module defines the types and modules/ ships five:
+// watchdog, ssh, selfregister, tunnel and datavolume.
+//
+// # One plain instance, with a persistent cache volume
+//
+// [Args].Single replaces the Auto Scaling group by one aws.ec2.Instance
+// created from the same launch template, for a box that something else starts
+// and stops on demand (a proxy). The role, instance profile, security group,
+// image lookup, S3 objects and user-data are as in group mode; there is no
+// group, hook, warm pool, refresh, health check or scaling, so Hook, WarmPool,
+// Refresh, Types, Alarms, the Group fields and module group actions are
+// refused, the role gets no autoscaling permission, and the user-data must be
+// rendered without bootstrap.Options.Lifecycle (nothing would answer a hook).
+//
+// A new image or new user-data is a new launch template version and replaces
+// the instance, deleting the old one first; the replacement comes up running.
+// The run state is not managed by Pulumi (there is no instance state
+// resource), so a stopped instance shows no diff. The instance carries a
+// caller-chosen role tag ([SingleArgs].RoleTagKey and RoleTagValue) that a proxy
+// finds it by, since the instance id changes on replacement; the private
+// address survives a stop and start, not a replacement. It joins a target
+// group only if [SingleArgs].TargetGroups says so.
+//
+// [Args].Data adds an encrypted EBS volume in one availability zone, protected
+// and retained on delete, attached by a resource of its own. On a replacement
+// the old attachment is deleted first (the old instance is stopped, so the file
+// system is cleanly detached), and the new instance attaches the same volume,
+// so a cache survives stop and start and an upgrade. The subnet must be in the
+// volume's zone: New fails the update otherwise. modules/datavolume formats a
+// blank volume once and mounts it on every boot, before the services that
+// need it start.
 //
 // # The on-box lifecycle
 //

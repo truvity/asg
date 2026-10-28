@@ -18,6 +18,7 @@ const (
 	DefaultGracePeriod      = 300
 	DefaultHopLimit         = 1
 	DefaultRootDevice       = "/dev/xvda"
+	DefaultDataDevice       = "/dev/sdf"
 	DefaultRootVolumeGiB    = 8
 	DefaultVolumeType       = "gp3"
 	// MaxDataVolumes bounds InstanceArgs.Volumes: device names /dev/sdf to
@@ -79,7 +80,16 @@ type (
 
 		Image    ImageArgs
 		Instance InstanceArgs
-		Group    GroupArgs
+		// Group configures the Auto Scaling group. Single-instance mode
+		// (Single set) has no group and refuses every field of it.
+		Group GroupArgs
+		// Single, when set, makes the appliance one plain EC2 instance
+		// created from the launch template, with no Auto Scaling group, hook,
+		// warm pool or refresh. See [SingleArgs].
+		Single *SingleArgs
+		// Data is a persistent EBS volume that outlives the instance. It
+		// needs Single. See [DataVolumeArgs].
+		Data *DataVolumeArgs
 		// Hook is the launch lifecycle hook; nil declares none.
 		Hook *HookArgs
 		// WarmPool is the warm pool; nil declares none. It needs Hook.
@@ -215,6 +225,78 @@ type (
 		IOPS            int
 		ThroughputMiBps int
 		// KMSKeyID, when set, encrypts with that key instead of the default.
+		KMSKeyID string
+	}
+
+	// SingleArgs turns the appliance into one plain EC2 instance
+	// (aws.ec2.Instance) created from the launch template. The launch
+	// template, role, instance profile, security group, image lookup, S3
+	// objects and user-data are the same as in group mode. There is no Auto
+	// Scaling group, so no launch hook, warm pool, instance refresh, health
+	// check or scaling; Hook, WarmPool, Refresh, Types, Alarms, the Group
+	// fields and module GroupActions are refused, and the user-data must be
+	// rendered without bootstrap.Options.Lifecycle (nothing would complete a
+	// hook, and the role gets no autoscaling permission).
+	//
+	// A change to the launch template (a newer image, other user-data) is a
+	// new template version, and the instance is replaced, deleted before
+	// created, so a Data volume is free when the new instance attaches it.
+	// The replacement comes up running.
+	//
+	// The run state is not managed: no instance state resource exists, so
+	// something else (a proxy) may stop and start the instance, and a stopped
+	// instance shows no diff. It finds the instance by the role tag, since
+	// the instance id changes on replacement; the private address survives a
+	// stop and start, not a replacement.
+	SingleArgs struct {
+		// SubnetID is the subnet of the instance. Required. With Data, the
+		// subnet must be in Data.AvailabilityZone; New checks that at deploy
+		// time and fails the update if not.
+		SubnetID pulumi.StringInput
+		// RoleTagKey and RoleTagValue are a tag on the instance (and on the
+		// Data volume) that names its role, for whatever finds it later.
+		// Both required.
+		RoleTagKey, RoleTagValue string
+		// TargetGroups register the instance in existing target groups.
+		// Default none (a proxy that dials the private address needs none).
+		TargetGroups []TargetGroupAttachment
+	}
+
+	// TargetGroupAttachment registers a single instance in a target group.
+	TargetGroupAttachment struct {
+		// ARN is the target group's ARN. Required.
+		ARN pulumi.StringInput
+		// Port overrides the target group's port; 0 keeps it.
+		Port int
+	}
+
+	// DataVolumeArgs is a persistent EBS volume for a single instance. It is
+	// created next to the instance, is protected and retained on delete, so
+	// no destroy of the appliance removes it, and it is attached with a
+	// separate attachment that moves to the new instance on a replacement.
+	// It lives in one availability zone and is always encrypted.
+	//
+	// The user-data mounts it: see modules/datavolume, which formats a blank
+	// volume once and mounts it on every boot. The volume id is not known when
+	// the user-data is rendered, so the module finds the device by its
+	// DeviceName.
+	DataVolumeArgs struct {
+		// AvailabilityZone is the zone of the volume and so of the instance.
+		// Required.
+		AvailabilityZone string
+		// DeviceName is /dev/sdf to /dev/sdp. Default /dev/sdf.
+		DeviceName string
+		// SizeGiB is required, 1..16384.
+		SizeGiB int
+		// Type defaults to gp3.
+		Type string
+		// IOPS and ThroughputMiBps, 0 keeps the type's baseline. Throughput
+		// is gp3 only.
+		IOPS            int
+		ThroughputMiBps int
+		// KMSKeyID encrypts with that key (a key ARN); empty: the account's
+		// default EBS key. The key's policy must let the principal that
+		// attaches and EC2 use it.
 		KMSKeyID string
 	}
 
@@ -427,6 +509,13 @@ type (
 		Role, InstanceProfile, SecurityGroup, LaunchTemplate, Group string
 		// Hook defaults to "<name>-hook".
 		Hook string
+		// Instance (single-instance mode) defaults to the component's name.
+		Instance string
+		// DataVolume and DataAttachment default to "<name>-data" and
+		// "<name>-data-attachment".
+		DataVolume, DataAttachment string
+		// TargetGroupAttachment defaults to "<name>-target-<index>".
+		TargetGroupAttachment func(index int) string
 		// ManagedPolicy defaults to "<name>-managed-<index>".
 		ManagedPolicy func(index int, arn string) string
 		// Ingress and Egress default to "<name>-ingress-<i>[-<j>]" and
@@ -451,6 +540,10 @@ const (
 	KindSecurityRule    Kind = "security-rule"
 	KindLaunchTemplate  Kind = "launch-template"
 	KindGroup           Kind = "group"
+	KindInstance        Kind = "instance"
+	KindDataVolume      Kind = "data-volume"
+	KindDataAttachment  Kind = "data-attachment"
+	KindTargetAttach    Kind = "target-attachment"
 	KindHook            Kind = "hook"
 	KindAlarm           Kind = "alarm"
 	KindObject          Kind = "object"
