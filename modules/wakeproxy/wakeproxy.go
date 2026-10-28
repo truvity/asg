@@ -62,6 +62,13 @@ type Route struct {
 	Target Selector
 	// TargetPort is the port on that instance (for example buildkitd's).
 	TargetPort int
+	// WakeOn is "data" (default): the connection is counted, and the target
+	// woken, only after the client's first byte, so a health probe that
+	// connects and closes does not keep the box up. "connect": on accept,
+	// for protocols where the server speaks first.
+	WakeOn string
+	// FirstByteTimeout is how long to wait for that byte. Default 30s.
+	FirstByteTimeout time.Duration
 }
 
 // Args configure the module.
@@ -143,6 +150,7 @@ func (a Args) Config() (wakeconfig.Config, error) {
 		c.Routes = append(c.Routes, wakeconfig.Route{
 			Name: r.Name, ListenPort: r.ListenPort, TargetPort: r.TargetPort,
 			Selector: wakeconfig.Selector{TagKey: r.Target.TagKey, TagValue: r.Target.TagValue},
+			WakeOn:   r.WakeOn, FirstByteTimeout: wakeconfig.Duration(r.FirstByteTimeout),
 		})
 	}
 

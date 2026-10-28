@@ -13,6 +13,7 @@ import (
 type routeMetrics struct {
 	active          atomic.Int64
 	connections     atomic.Int64
+	noData          atomic.Int64
 	wakes           atomic.Int64
 	wakeFailures    atomic.Int64
 	stops           atomic.Int64
@@ -48,6 +49,8 @@ func writeMetrics(w io.Writer, routes map[string]*routeMetrics) {
 	}{
 		{"wake_proxy_active_connections", "gauge", "Connections open now.", func(m *routeMetrics) int64 { return m.active.Load() }},
 		{"wake_proxy_connections_total", "counter", "Connections accepted.", func(m *routeMetrics) int64 { return m.connections.Load() }},
+		{"wake_proxy_connections_without_data_total", "counter", "Connections that closed, or timed out, before sending a byte (health probes); not counted as activity.",
+			func(m *routeMetrics) int64 { return m.noData.Load() }},
 		{"wake_proxy_wakes_total", "counter", "Times the proxy started a stopped target.", func(m *routeMetrics) int64 { return m.wakes.Load() }},
 		{"wake_proxy_wake_failures_total", "counter", "Wakes that ended without a reachable target.", func(m *routeMetrics) int64 { return m.wakeFailures.Load() }},
 		{"wake_proxy_stops_total", "counter", "Times the proxy stopped an idle target.", func(m *routeMetrics) int64 { return m.stops.Load() }},

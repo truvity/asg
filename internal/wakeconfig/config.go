@@ -24,6 +24,21 @@ const (
 	DefaultWakeTimeout   = 180 * time.Second
 	DefaultShutdownGrace = 30 * time.Second
 	DefaultActivityTag   = "wake-proxy/last-active"
+
+	// DefaultFirstByteTimeout is how long a route waits for a client's first
+	// byte when it wakes on data.
+	DefaultFirstByteTimeout = 30 * time.Second
+)
+
+// Values of Route.WakeOn.
+const (
+	// WakeOnData counts a connection, and wakes the target, only once the
+	// client has sent a byte. A health probe that connects and closes
+	// without a byte does neither. This is the default.
+	WakeOnData = "data"
+	// WakeOnConnect counts and wakes on accept, for protocols where the
+	// server speaks first and the client waits for it.
+	WakeOnConnect = "connect"
 )
 
 // Duration is a time.Duration that reads and writes a Go duration string such
@@ -69,6 +84,14 @@ type Route struct {
 	Selector Selector `json:"selector"`
 	// TargetPort is the port on the instance.
 	TargetPort int `json:"targetPort"`
+	// WakeOn is "data" (default): the connection is counted and the target
+	// woken only after the client's first byte. "connect": on accept, for
+	// server-speaks-first protocols.
+	WakeOn string `json:"wakeOn,omitempty"`
+	// FirstByteTimeout is how long a "data" route waits for the first byte
+	// before it closes the connection and does nothing else. Default 30s.
+	// Unused when WakeOn is "connect".
+	FirstByteTimeout Duration `json:"firstByteTimeout,omitempty"`
 }
 
 // Config is the whole file.
@@ -111,6 +134,23 @@ func (c Config) WithDefaults() Config {
 
 	if c.ActivityTag == "" {
 		c.ActivityTag = DefaultActivityTag
+	}
+
+	if c.Routes != nil {
+		routes := make([]Route, len(c.Routes))
+		copy(routes, c.Routes)
+
+		for i := range routes {
+			if routes[i].WakeOn == "" {
+				routes[i].WakeOn = WakeOnData
+			}
+
+			if routes[i].FirstByteTimeout == 0 {
+				routes[i].FirstByteTimeout = Duration(DefaultFirstByteTimeout)
+			}
+		}
+
+		c.Routes = routes
 	}
 
 	return c
@@ -173,6 +213,14 @@ func (c Config) Validate() error {
 		}
 
 		ports[r.ListenPort] = where
+
+		if r.WakeOn != WakeOnData && r.WakeOn != WakeOnConnect {
+			errs = append(errs, fmt.Errorf("%s: wakeOn %q: want %q or %q", where, r.WakeOn, WakeOnData, WakeOnConnect))
+		}
+
+		if r.FirstByteTimeout <= 0 {
+			errs = append(errs, fmt.Errorf("%s: firstByteTimeout must be positive", where))
+		}
 
 		if !tagKeyRe.MatchString(r.Selector.TagKey) || !tagValRe.MatchString(r.Selector.TagValue) {
 			errs = append(errs, fmt.Errorf("%s: selector wants a tag key and a tag value", where))

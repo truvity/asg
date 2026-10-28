@@ -35,3 +35,20 @@ func splice(a, b net.Conn) (ab, ba int64) {
 
 	return ab, ba
 }
+
+// replayConn is a client connection whose first byte has already been read:
+// Read returns that byte first.
+type replayConn struct {
+	net.Conn
+	r io.Reader
+}
+
+func (c *replayConn) Read(p []byte) (int, error) { return c.r.Read(p) }
+
+func (c *replayConn) CloseWrite() error {
+	if cw, ok := c.Conn.(closeWriter); ok {
+		return cw.CloseWrite()
+	}
+
+	return c.Conn.Close()
+}

@@ -32,7 +32,15 @@ something that holds the connection open succeeds.
    It never terminates TLS: mutual TLS stays end to end between the client
    and the service on the box, so the proxy holds no certificate and no key,
    and a compromised proxy still cannot read or forge a build.
-3. **Wake on connect, hold the client.** On accept the proxy looks the target
+3. **Wake on the first byte, hold the client.** A connection counts as
+   activity, and may wake the target, only once the client has sent a byte.
+   After accept the proxy waits for that byte for the route's
+   `firstByteTimeout` (default 30 s); a client that closes or stays silent
+   (a TCP health probe) is closed with no accounting, no tag write and no
+   wake, and is only counted in `wake_proxy_connections_without_data_total`.
+   The byte is replayed first on the upstream stream. A route with
+   `wakeOn: "connect"` skips the wait and acts on accept, for protocols where
+   the server speaks first. After the byte (or on accept) the proxy looks the target
    up by one tag (exactly one instance, running or stopped; none or several
    is an error that is logged and counted, and the client is closed). Then:
    `running` and the port accepts, splice; `stopped`, call
@@ -104,7 +112,8 @@ something that holds the connection open succeeds.
     change a running box. It holds no secret.
 11. **Operations.** Logs are one JSON line per wake, stop and connection open
     and close, with durations. Metrics are Prometheus text on an optional
-    separate listener: active connections, connections, wakes, wake
+    separate listener: active connections, connections, connections without
+    data, wakes, wake
     failures, wake duration (sum and count), stops, dial failures and
     resolve failures, per route. On SIGTERM the proxy stops accepting and
     lets open streams finish for the shutdown grace (default 30 s) before it
