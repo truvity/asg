@@ -90,7 +90,10 @@ See the package documentation for the details.
 A big box that is idle most of the day can be kept **stopped**. A small
 always-on proxy (`cmd/wake-proxy`, ADR
 [0006](docs/decisions/0006-wake-proxy.md)) sits in front of it: a client
-connects to the proxy through the NLB, the proxy starts the stopped instance,
+connects to the proxy through the NLB and sends its first byte (a bare
+connect and close, such as a TCP health probe, wakes nothing and keeps nothing
+alive; `WakeOn: "connect"` on a route restores acting on accept for protocols
+where the server speaks first), the proxy starts the stopped instance,
 holds the client's TCP connection until the port accepts (up to a wake
 timeout, default 180 s), pipes the stream through (mutual TLS stays end to
 end; the proxy never terminates TLS) and stops the instance after 20 minutes

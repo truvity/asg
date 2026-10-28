@@ -3,6 +3,10 @@
 Entries are written for someone deciding whether to bump: what changed for
 them, and for anything breaking, what to do.
 
+## Unreleased
+
+- **Fix: `cmd/wake-proxy` wakes on the client's first byte, not on connect.** A TCP health probe that connected and closed without sending anything (every ~30 s) woke a stopped target and kept refreshing the activity tag, so the idle stop never fired. A route now waits for the first byte (default `firstByteTimeout` 30 s) before it counts the connection, writes the tag or wakes anything; a client that closes or stays silent is dropped with no side effect and counted in the new `wake_proxy_connections_without_data_total`. The byte is forwarded upstream first. Set `wakeOn` to `connect` (`wakeproxy.Route.WakeOn`) on a route to keep the old behaviour for server-speaks-first protocols. `wakeproxy.Route` gains `WakeOn` (`data`, the default, or `connect`) and `FirstByteTimeout`; the rendered configuration now carries both per route. A client that connects and waits for the server to speak first, on a route left at the default, is closed after the timeout: set `WakeOn: "connect"` on it.
+
 ## v0.7.0
 
 - **`front.Registry`: check a shared NLB's port registry before any program runs.** `Registry{Listeners, Names}.Validate()` holds a consumer's configuration (service name to port, optional DNS name to service) to what `NewSharedNLB` and `Attach` need: listener names the NLB accepts, ports in 1..65535, one service per port, at most `MaxListeners`, and well-formed DNS names that serve a listener of the registry. Every finding is reported at once. Nothing changes for a consumer that does not call it.

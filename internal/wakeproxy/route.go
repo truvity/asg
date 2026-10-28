@@ -1,9 +1,11 @@
 package wakeproxy
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"strconv"
@@ -134,8 +136,40 @@ func (r *route) activeNow() int {
 	return r.active
 }
 
+// awaitData waits for the client's first byte, for at most the route's first
+// byte timeout. It returns a connection that replays the byte, and false when
+// the client closed or the time ran out without one.
+func (r *route) awaitData(c net.Conn) (net.Conn, bool) {
+	_ = c.SetReadDeadline(time.Now().Add(r.cfg.FirstByteTimeout.D()))
+
+	var b [1]byte
+
+	n, err := io.ReadFull(c, b[:])
+	if n == 0 {
+		r.m.noData.Add(1)
+		r.log.Debug("connection closed without data", "remote", c.RemoteAddr().String(), "error", err)
+
+		return nil, false
+	}
+
+	_ = c.SetReadDeadline(time.Time{})
+
+	return &replayConn{Conn: c, r: io.MultiReader(bytes.NewReader(b[:]), c)}, true
+}
+
 func (r *route) handle(ctx context.Context, c net.Conn) {
 	defer func() { _ = c.Close() }()
+
+	if r.cfg.WakeOn != wakeconfig.WakeOnConnect {
+		// A probe that connects and closes must not wake the target or
+		// refresh the activity tag: nothing is counted before a byte.
+		wrapped, ok := r.awaitData(c)
+		if !ok {
+			return
+		}
+
+		c = wrapped
+	}
 
 	opened := r.now()
 	first := r.open()

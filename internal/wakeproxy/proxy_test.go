@@ -364,6 +364,10 @@ func TestWakeTimeoutClosesTheClient(t *testing.T) {
 	}
 	defer func() { _ = c.Close() }()
 
+	if _, err := c.Write([]byte("x")); err != nil {
+		t.Fatal(err)
+	}
+
 	begin := time.Now()
 
 	_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
@@ -463,6 +467,10 @@ func TestNoStopWhileConnectionsAreOpen(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	if _, err := c.Write([]byte("x")); err != nil {
+		t.Fatal(err)
+	}
+
 	waitFor(t, "connection counted", func() bool { return r.activeNow() == 1 && h.p.routes[0].m.connections.Load() == 1 })
 	waitFor(t, "established", func() bool {
 		_ = c.SetWriteDeadline(time.Now().Add(time.Second))
@@ -520,6 +528,7 @@ func TestZeroOrSeveralMatchingInstancesFailLoudly(t *testing.T) {
 			t.Fatal(err)
 		}
 
+		_, _ = c.Write([]byte("x"))
 		_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
 
 		if _, err := c.Read(make([]byte, 1)); err == nil {
@@ -557,12 +566,124 @@ func TestHealthIgnoresTargetsAndMetricsRender(t *testing.T) {
 	rec = httptest.NewRecorder()
 	h.p.MetricsHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 
-	wants := []string{`wake_proxy_active_connections{route="b"} 0`, "wake_proxy_wakes_total", "wake_proxy_stops_total", "wake_proxy_dial_failures_total",
+	wants := []string{`wake_proxy_active_connections{route="b"} 0`, "wake_proxy_wakes_total", "wake_proxy_connections_without_data_total", "wake_proxy_stops_total", "wake_proxy_dial_failures_total",
 		"wake_proxy_wake_duration_seconds_count"}
 
 	for _, want := range wants {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Errorf("metrics lack %q", want)
 		}
+	}
+}
+
+func (f *fakeCloud) tagCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return len(f.tags)
+}
+
+func TestProbeConnectAndCloseDoesNotWakeOrTag(t *testing.T) {
+	b := newBackend(t)
+	cloud := newCloud(StateStopped, 1)
+	h := start(t, cloud, b, nil)
+
+	for range 3 {
+		c, err := net.Dial("tcp", h.addr)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_ = c.Close()
+	}
+
+	waitFor(t, "probes seen", func() bool { return h.p.routes[0].m.noData.Load() == 3 })
+
+	if s, _ := cloud.counts(); s != 0 {
+		t.Errorf("a probe started the target %d times", s)
+	}
+
+	if n := cloud.tagCount(); n != 0 {
+		t.Errorf("a probe wrote the activity tag %d times", n)
+	}
+
+	if m := h.p.routes[0].m; m.connections.Load() != 0 || h.p.routes[0].activeNow() != 0 {
+		t.Errorf("a probe was counted: connections %d, active %d", m.connections.Load(), h.p.routes[0].activeNow())
+	}
+}
+
+func TestFirstByteWakesTheTargetAndArrivesIntact(t *testing.T) {
+	b := newBackend(t)
+	cloud := newCloud(StateStopped, 1)
+	cloud.startPolls = 2
+	cloud.onRunning = b.open
+
+	h := start(t, cloud, b, nil)
+
+	msg := "\x16\x03\x01 first byte must lead the stream"
+	roundTrip(t, h.addr, msg)
+
+	if s, _ := cloud.counts(); s != 1 {
+		t.Errorf("starts %d, want 1", s)
+	}
+
+	waitFor(t, "byte counts", func() bool { return h.p.routes[0].activeNow() == 0 })
+}
+
+func TestWakeOnConnectKeepsTheOldBehaviour(t *testing.T) {
+	b := newBackend(t)
+	cloud := newCloud(StateStopped, 1)
+	cloud.startPolls = 1
+	cloud.onRunning = b.open
+
+	h := start(t, cloud, b, func(c *wakeconfig.Config, _ *Options) { c.Routes[0].WakeOn = wakeconfig.WakeOnConnect })
+
+	c, err := net.Dial("tcp", h.addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	waitFor(t, "wake without a byte", func() bool { s, _ := cloud.counts(); return s == 1 })
+	waitFor(t, "counted", func() bool { return h.p.routes[0].activeNow() == 1 })
+
+	_ = c.Close()
+
+	waitFor(t, "closed", func() bool { return h.p.routes[0].activeNow() == 0 })
+
+	if n := cloud.tagCount(); n < 2 {
+		t.Errorf("tag writes %d, want the first-open and last-close writes", n)
+	}
+}
+
+func TestFirstByteTimeoutClosesWithoutWaking(t *testing.T) {
+	b := newBackend(t)
+	cloud := newCloud(StateStopped, 1)
+
+	h := start(t, cloud, b, func(c *wakeconfig.Config, _ *Options) {
+		c.Routes[0].FirstByteTimeout = wakeconfig.Duration(100 * time.Millisecond)
+	})
+
+	c, err := net.Dial("tcp", h.addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+
+	_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
+
+	if _, err := c.Read(make([]byte, 1)); err != io.EOF {
+		t.Fatalf("want the proxy to close the silent client; got %v", err)
+	}
+
+	if s, _ := cloud.counts(); s != 0 {
+		t.Errorf("starts %d, want 0", s)
+	}
+
+	if n := cloud.tagCount(); n != 0 {
+		t.Errorf("tag writes %d, want 0", n)
+	}
+
+	if got := h.p.routes[0].m.noData.Load(); got != 1 {
+		t.Errorf("without-data count %d, want 1", got)
 	}
 }
