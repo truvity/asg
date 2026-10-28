@@ -50,5 +50,5 @@ func (c *replayConn) CloseWrite() error {
 		return cw.CloseWrite()
 	}
 
-	return c.Conn.Close()
+	return c.Close()
 }

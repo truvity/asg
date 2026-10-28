@@ -566,7 +566,8 @@ func TestHealthIgnoresTargetsAndMetricsRender(t *testing.T) {
 	rec = httptest.NewRecorder()
 	h.p.MetricsHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 
-	wants := []string{`wake_proxy_active_connections{route="b"} 0`, "wake_proxy_wakes_total", "wake_proxy_connections_without_data_total", "wake_proxy_stops_total", "wake_proxy_dial_failures_total",
+	wants := []string{`wake_proxy_active_connections{route="b"} 0`, "wake_proxy_wakes_total",
+		"wake_proxy_connections_without_data_total", "wake_proxy_stops_total", "wake_proxy_dial_failures_total",
 		"wake_proxy_wake_duration_seconds_count"}
 
 	for _, want := range wants {
