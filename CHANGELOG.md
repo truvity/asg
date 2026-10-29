@@ -3,7 +3,7 @@
 Entries are written for someone deciding whether to bump: what changed for
 them, and for anything breaking, what to do.
 
-## Unreleased
+## v0.9.0
 
 - **`cmd/wake-proxy`: new `wake_proxy_connect_failures_total{route}` counter, the alertable signal.** It counts client connections the proxy gave up on: the client got no target connection after the wake and every retry (wake timeout, failed wake, or a lookup that matched no or several instances). It is incremented once per such client connection. `wake_proxy_dial_failures_total` is unchanged but its help text now says what it always did: it counts every dial attempt, including the refused retries while a woken target boots, so it rises on a normal wake and must not be alerted on. `wake_proxy_resolve_failures_total` is likewise per attempt (a wake repeats the lookup each poll). Alert on `increase(wake_proxy_connect_failures_total[15m]) > 0`. A minor bump (v0.9.0).
 
