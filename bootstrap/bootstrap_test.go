@@ -220,6 +220,29 @@ func TestDeterministic(t *testing.T) {
 	}
 }
 
+// The compressed user-data is part of the launch template's input: the same
+// plan must give the same bytes on every render and every run, and the gzip
+// header must carry no time, so an unchanged program never plans a launch
+// template version.
+func TestGzipIsByteIdenticalAndCarriesNoTime(t *testing.T) {
+	first, err := fullPlan(t, bootstrap.Options{Gzip: bootstrap.GzipAlways}).Render()
+	must(t, err)
+	if !first.Gzipped {
+		t.Fatal("GzipAlways must compress")
+	}
+	for i := 0; i < 10; i++ {
+		again, err := fullPlan(t, bootstrap.Options{Gzip: bootstrap.GzipAlways}).Render()
+		must(t, err)
+		if !bytes.Equal(first.UserData, again.UserData) {
+			t.Fatalf("render %d: the gzip bytes differ", i)
+		}
+	}
+	// Header: magic, method, flags, then a four-byte mtime that must be zero.
+	if h := first.UserData[:8]; !bytes.Equal(h[4:8], []byte{0, 0, 0, 0}) {
+		t.Errorf("gzip header carries a time: % x", h)
+	}
+}
+
 func TestConflicts(t *testing.T) {
 	cases := map[string][]bootstrap.Fragment{
 		"path": {
