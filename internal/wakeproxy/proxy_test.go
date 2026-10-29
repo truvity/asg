@@ -377,6 +377,7 @@ func TestWakeTimeoutClosesTheClient(t *testing.T) {
 	}
 
 	waitFor(t, "wake failure", func() bool { return h.p.routes[0].m.wakeFailures.Load() == 1 })
+	waitFor(t, "connect failure", func() bool { return h.p.routes[0].m.connectFailures.Load() == 1 })
 
 	if s, _ := cloud.counts(); s != 1 {
 		t.Errorf("starts %d, want 1", s)
@@ -568,6 +569,7 @@ func TestHealthIgnoresTargetsAndMetricsRender(t *testing.T) {
 
 	wants := []string{`wake_proxy_active_connections{route="b"} 0`, "wake_proxy_wakes_total",
 		"wake_proxy_connections_without_data_total", "wake_proxy_stops_total", "wake_proxy_dial_failures_total",
+		"wake_proxy_connect_failures_total",
 		"wake_proxy_wake_duration_seconds_count"}
 
 	for _, want := range wants {
@@ -687,4 +689,47 @@ func TestFirstByteTimeoutClosesWithoutWaking(t *testing.T) {
 	if got := h.p.routes[0].m.noData.Load(); got != 1 {
 		t.Errorf("without-data count %d, want 1", got)
 	}
+}
+
+func TestRefusedDialsWhileTheTargetBootsAreNotConnectFailures(t *testing.T) {
+	b := newBackend(t)
+	cloud := newCloud(StateStopped, 1)
+	cloud.startPolls = 1
+	cloud.onRunning = func() {
+		// The instance reports running before its port accepts.
+		go func() {
+			time.Sleep(150 * time.Millisecond)
+			b.open()
+		}()
+	}
+
+	h := start(t, cloud, b, nil)
+
+	roundTrip(t, h.addr, "hello")
+
+	m := h.p.routes[0].m
+	if got := m.dialFailures.Load(); got == 0 {
+		t.Errorf("dial failures %d, want the refused attempts counted", got)
+	}
+
+	if got := m.connectFailures.Load(); got != 0 {
+		t.Errorf("connect failures %d, want 0: the client got its connection", got)
+	}
+}
+
+func TestUnresolvableTargetIsOneConnectFailure(t *testing.T) {
+	b := newBackend(t)
+	h := start(t, newCloud(StateStopped, 0), b, nil)
+
+	c, err := net.Dial("tcp", h.addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+
+	_, _ = c.Write([]byte("x"))
+	_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_, _ = c.Read(make([]byte, 1))
+
+	waitFor(t, "connect failure", func() bool { return h.p.routes[0].m.connectFailures.Load() == 1 })
 }
