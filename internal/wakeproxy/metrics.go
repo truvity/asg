@@ -9,6 +9,17 @@ import (
 	"time"
 )
 
+// Help texts that are too long for the series table.
+const (
+	dialHelp = "Failed dial attempts of a target, every retry included: a woken target refuses dials while it boots, " +
+		"so a normal wake raises this and the client still connects. Not an alerting signal; see " +
+		"wake_proxy_connect_failures_total."
+	resolveHelp = "Lookups that matched zero or several instances, or failed, counted per attempt: a wake repeats the " +
+		"lookup every poll interval, so a transient describe error is counted each time it is retried."
+	connectHelp = "Client connections the proxy gave up on: no target connection after the wake and every retry (wake " +
+		"timeout, wake failure, lookup that matched no or several instances). Once per client connection."
+)
+
 // routeMetrics are the counters of one route.
 type routeMetrics struct {
 	active          atomic.Int64
@@ -55,11 +66,11 @@ func writeMetrics(w io.Writer, routes map[string]*routeMetrics) {
 		{"wake_proxy_wakes_total", "counter", "Times the proxy started a stopped target.", func(m *routeMetrics) int64 { return m.wakes.Load() }},
 		{"wake_proxy_wake_failures_total", "counter", "Wakes that ended without a reachable target.", func(m *routeMetrics) int64 { return m.wakeFailures.Load() }},
 		{"wake_proxy_stops_total", "counter", "Times the proxy stopped an idle target.", func(m *routeMetrics) int64 { return m.stops.Load() }},
-		{"wake_proxy_dial_failures_total", "counter", "Failed dial attempts of a target, every retry included: a woken target refuses dials while it boots, so a normal wake raises this and the client still connects. Not an alerting signal; see wake_proxy_connect_failures_total.",
+		{"wake_proxy_dial_failures_total", "counter", dialHelp,
 			func(m *routeMetrics) int64 { return m.dialFailures.Load() }},
-		{"wake_proxy_resolve_failures_total", "counter", "Lookups that matched zero or several instances, or failed, counted per attempt: a wake repeats the lookup every poll interval, so a transient describe error is counted each time it is retried.",
+		{"wake_proxy_resolve_failures_total", "counter", resolveHelp,
 			func(m *routeMetrics) int64 { return m.resolveFailures.Load() }},
-		{"wake_proxy_connect_failures_total", "counter", "Client connections the proxy gave up on: no target connection after the wake and every retry (wake timeout, wake failure, lookup that matched no or several instances). Once per client connection.",
+		{"wake_proxy_connect_failures_total", "counter", connectHelp,
 			func(m *routeMetrics) int64 { return m.connectFailures.Load() }},
 	}
 
