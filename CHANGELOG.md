@@ -3,7 +3,7 @@
 Entries are written for someone deciding whether to bump: what changed for
 them, and for anything breaking, what to do.
 
-## Unreleased
+## v0.8.1
 
 - **Fix: `Args.Single` no longer shows a perpetual `userData` update on the instance.** A refresh reads the launch template's user-data back from the running instance (gzip bytes) into the instance's state, and the program never sets it there, so every preview planned to remove it, and applying that stopped and started the instance. The instance now ignores `userData` and `userDataBase64`; a user-data change is still a new launch template version, which replaces the instance as before. The user-data rendering was already deterministic (the gzip header carries no time); a test now pins that.
 
