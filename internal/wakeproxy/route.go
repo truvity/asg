@@ -185,6 +185,7 @@ func (r *route) handle(ctx context.Context, c net.Conn) {
 
 	inst, err := r.resolve(ctx)
 	if err != nil {
+		r.m.connectFailures.Add(1)
 		r.log.Error("connection refused: cannot resolve the target", "remote", remote, "error", err)
 
 		return
@@ -200,6 +201,7 @@ func (r *route) handle(ctx context.Context, c net.Conn) {
 	waited := r.now().Sub(opened)
 
 	if err != nil {
+		r.m.connectFailures.Add(1)
 		r.log.Error("connection dropped: target unreachable", "remote", remote, "instance", inst.ID, "waited_ms", waited.Milliseconds(), "error", err)
 
 		return

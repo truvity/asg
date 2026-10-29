@@ -3,6 +3,10 @@
 Entries are written for someone deciding whether to bump: what changed for
 them, and for anything breaking, what to do.
 
+## Unreleased
+
+- **`cmd/wake-proxy`: new `wake_proxy_connect_failures_total{route}` counter, the alertable signal.** It counts client connections the proxy gave up on: the client got no target connection after the wake and every retry (wake timeout, failed wake, or a lookup that matched no or several instances). It is incremented once per such client connection. `wake_proxy_dial_failures_total` is unchanged but its help text now says what it always did: it counts every dial attempt, including the refused retries while a woken target boots, so it rises on a normal wake and must not be alerted on. `wake_proxy_resolve_failures_total` is likewise per attempt (a wake repeats the lookup each poll). Alert on `increase(wake_proxy_connect_failures_total[15m]) > 0`. A minor bump (v0.9.0).
+
 ## v0.8.1
 
 - **Fix: `Args.Single` no longer shows a perpetual `userData` update on the instance.** A refresh reads the launch template's user-data back from the running instance (gzip bytes) into the instance's state, and the program never sets it there, so every preview planned to remove it, and applying that stopped and started the instance. The instance now ignores `userData` and `userDataBase64`; a user-data change is still a new launch template version, which replaces the instance as before. The user-data rendering was already deterministic (the gzip header carries no time); a test now pins that.
