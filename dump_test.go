@@ -140,6 +140,10 @@ func resourceOptions(args pulumi.MockResourceArgs) map[string]any {
 		o["replaceOnChanges"] = rc
 	}
 
+	if ic := req.GetIgnoreChanges(); len(ic) > 0 {
+		o["ignoreChanges"] = ic
+	}
+
 	return o
 }
 

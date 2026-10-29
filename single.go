@@ -51,7 +51,19 @@ func (b *builder) single() error {
 	// template version is explicit, so a new version is a diff, and a
 	// launch template change replaces the instance, deleting the old one
 	// first so that the data volume is detached when the new one attaches it.
-	opts := b.child(KindInstance, pulumi.DeleteBeforeReplace(true), pulumi.ReplaceOnChanges([]string{"launchTemplate"}))
+	//
+	// The user-data is the launch template's, and the program never sets it
+	// on the instance. A refresh reads it back from the running instance
+	// (gzip bytes, not text) into the instance's state and inputs, and the
+	// next update would then plan to remove it: a perpetual diff, and
+	// removing it stops and starts the instance. It is ignored here; a
+	// user-data change is a new launch template version, which replaces the
+	// instance.
+	opts := b.child(KindInstance,
+		pulumi.DeleteBeforeReplace(true),
+		pulumi.ReplaceOnChanges([]string{"launchTemplate"}),
+		pulumi.IgnoreChanges([]string{"userData", "userDataBase64"}),
+	)
 
 	inst, err := ec2.NewInstance(b.ctx, b.logicals.Instance, &ec2.InstanceArgs{
 		LaunchTemplate: ec2.InstanceLaunchTemplateArgs{Id: b.out.LaunchTemplate.ID(), Version: version},

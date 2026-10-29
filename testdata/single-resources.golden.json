@@ -37,6 +37,10 @@
     "name": "builder",
     "options": {
       "deleteBeforeReplace": true,
+      "ignoreChanges": [
+        "userData",
+        "userDataBase64"
+      ],
       "replaceOnChanges": [
         "launchTemplate"
       ]

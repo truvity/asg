@@ -1,6 +1,7 @@
 package asg_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -78,6 +79,14 @@ func TestSingleInstanceIsReplacedDeletedFirstAndRunStateIsNotManaged(t *testing.
 
 	if rc, _ := o["replaceOnChanges"].([]string); len(rc) != 1 || rc[0] != "launchTemplate" {
 		t.Errorf("replaceOnChanges %v", o["replaceOnChanges"])
+	}
+
+	// The refresh reads the launch template's (gzip) user-data back into the
+	// instance; the program never sets it there, so it must not plan to
+	// remove it (a perpetual diff that stops and starts the instance).
+	ic, _ := o["ignoreChanges"].([]string)
+	if !slices.Equal(ic, []string{"userData", "userDataBase64"}) {
+		t.Errorf("ignoreChanges %v: the instance must ignore the user-data read back by a refresh", o["ignoreChanges"])
 	}
 
 	tags := inst["tags"].(map[string]any)
