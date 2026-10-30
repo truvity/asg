@@ -456,6 +456,46 @@ func TestIdleStopFollowsTheSharedTag(t *testing.T) {
 	}
 }
 
+func TestIdleCountsFromTheInstanceLaunch(t *testing.T) {
+	b := newBackend(t)
+	b.open()
+	ctx := context.Background()
+
+	stops := func(c *fakeCloud) int { _, st := c.counts(); return st }
+
+	// A new instance has no tag; the proxy has run for days. It must not be
+	// stopped within the idle timeout of its launch.
+	cloud := newCloud(StateRunning, 1)
+	h := start(t, cloud, b, nil)
+	h.clk.Advance(48 * time.Hour)
+	cloud.insts[0].LaunchTime = h.clk.Now().Add(-time.Minute)
+	h.p.routes[0].idleCheck(ctx)
+
+	if n := stops(cloud); n != 0 {
+		t.Fatalf("stopped a new tagless instance launched a minute ago: stops %d", n)
+	}
+
+	// Once the timeout has passed since the launch it is stopped.
+	h.clk.Advance(21 * time.Minute)
+	h.p.routes[0].idleCheck(ctx)
+
+	if n := stops(cloud); n != 1 {
+		t.Fatalf("a tagless instance idle past the timeout since its launch: stops %d, want 1", n)
+	}
+
+	// An old tag does not hide a recent start.
+	cloud2 := newCloud(StateRunning, 1)
+	h2 := start(t, cloud2, b, nil)
+	h2.clk.Advance(48 * time.Hour)
+	cloud2.insts[0].Tags[actTag] = h2.clk.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+	cloud2.insts[0].LaunchTime = h2.clk.Now().Add(-time.Minute)
+	h2.p.routes[0].idleCheck(ctx)
+
+	if n := stops(cloud2); n != 0 {
+		t.Fatalf("stopped an instance started a minute ago that has an old tag: stops %d", n)
+	}
+}
+
 func TestNoStopWhileConnectionsAreOpen(t *testing.T) {
 	b := newBackend(t)
 	b.open()

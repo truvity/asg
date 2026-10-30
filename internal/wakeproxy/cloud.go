@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 )
 
 // Instance states the proxy acts on.
@@ -24,6 +25,9 @@ type Instance struct {
 	State     string
 	PrivateIP string
 	Tags      map[string]string
+	// LaunchTime is when the instance last started (EC2 resets it on every
+	// start); zero when unknown.
+	LaunchTime time.Time
 }
 
 // Cloud is the part of EC2 the proxy uses. cmd/wake-proxy implements it with

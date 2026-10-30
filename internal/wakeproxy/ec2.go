@@ -40,6 +40,10 @@ func (a awsCloud) Find(ctx context.Context, key, value string) ([]Instance, erro
 			for k := range r.Instances {
 				i := &r.Instances[k]
 				inst := Instance{ID: aws.ToString(i.InstanceId), PrivateIP: aws.ToString(i.PrivateIpAddress), Tags: map[string]string{}}
+				if i.LaunchTime != nil {
+					inst.LaunchTime = *i.LaunchTime
+				}
+
 				if i.State != nil {
 					inst.State = string(i.State.Name)
 				}
