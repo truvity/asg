@@ -424,7 +424,9 @@ func (r *route) idleLoop(ctx context.Context) {
 // idleCheck stops the target when nobody has used it for the idle timeout:
 // this proxy has no connection on the route, and the activity tag, which
 // every proxy writes, is older than the timeout. A target without the tag is
-// left alone until the timeout has passed since this proxy started.
+// counted from this proxy's start. In both cases the idle time never starts
+// before the instance's launch time (EC2 resets it on every start), so a
+// freshly created or just started instance gets the full timeout to boot.
 func (r *route) idleCheck(ctx context.Context) {
 	if r.activeNow() > 0 {
 		return
@@ -449,6 +451,10 @@ func (r *route) idleCheck(ctx context.Context) {
 		} else {
 			r.log.Warn("idle check: unreadable activity tag, counting from proxy start", "instance", inst.ID)
 		}
+	}
+
+	if !inst.LaunchTime.IsZero() && inst.LaunchTime.After(ref) {
+		ref, source = inst.LaunchTime, "launch time"
 	}
 
 	idle := r.now().Sub(ref)
