@@ -184,9 +184,12 @@ component type, the logical names and the layout the group was created with.
 maintainers' platform repository calls it from its own Pulumi programs, for
 the shared network load balancer in front of boxes and for the CI builders.
 
-**Company part.** None. Nothing is written into a company's namespaces or
-secret paths for this library. A company that runs a service on EC2 can call
-`asg.New` from its own Pulumi program, as in the worked example above.
+**Company part.** None applied from this repository. A company that runs a
+service on EC2 can call `asg.New` in a Pulumi program of its own, as in the
+worked example above. Its SRE applies that program by hand from the company's
+own nexus repository, under the company's limit role and inside the permission
+boundary the platform sets
+([delegation model](https://github.com/truvity/policy/blob/master/docs/delegation-model.md)).
 
 ## Consumers
 
