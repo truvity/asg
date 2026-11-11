@@ -184,9 +184,9 @@ component type, the logical names and the layout the group was created with.
 maintainers' platform repository calls it from its own Pulumi programs, for
 the shared network load balancer in front of boxes and for the CI builders.
 
-**Company part.** None. No document is written into a box for this library. A
-company that runs a service on EC2 calls `asg.New` from its own Pulumi program,
-as in the worked example above.
+**Company part.** None. Nothing is written into a company's namespaces or
+secret paths for this library. A company that runs a service on EC2 can call
+`asg.New` from its own Pulumi program, as in the worked example above.
 
 ## Consumers
 
@@ -226,8 +226,10 @@ without a behaviour change; v0.2.0 adds the `module` package and the first
 four modules, and changes two defaults (see the CHANGELOG); v0.3.0 adds
 `front`; v0.4.0 adds data volumes, several instance types, warm-pool reuse on
 scale-in, termination policies, module group actions and `ssmcert`. Later
-releases add the one-instance mode with a data volume and the wake proxy
-(v0.6.0), `front.Registry` (v0.7.0) and fixes to the wake proxy.
+releases add two `Compat` fields (v0.5.0), the one-instance mode with a data
+volume and the wake proxy (v0.6.0) and `front.Registry` (v0.7.0). From v0.8.0
+to v0.9.1 they fix the wake proxy and `Args.Single` and add a counter for the
+connections the wake proxy gave up on.
 
 ## Development
 
