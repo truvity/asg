@@ -98,6 +98,13 @@ type Args struct {
 	// ActivityTag is the tag the proxies write on the target. Default
 	// wake-proxy/last-active.
 	ActivityTag string
+	// UnreachableRestartAfter is how long a target may be running and
+	// refusing its port before the proxy stops and starts it (once per
+	// wake). Default: WakeTimeout.
+	UnreachableRestartAfter time.Duration
+	// UnreachableRestartCooldown is the least time between two such
+	// restarts of one target. Default 30m; at least UnreachableRestartAfter.
+	UnreachableRestartCooldown time.Duration
 
 	// Account, Partition and KMSKeyARNs, when Account is set, make the
 	// module contribute [Statements] for the Routes' targets. Partition
@@ -140,6 +147,9 @@ func (a Args) Config() (wakeconfig.Config, error) {
 		ShutdownGrace:  wakeconfig.Duration(a.ShutdownGrace),
 		MetricsAddress: a.MetricsAddress,
 		ActivityTag:    a.ActivityTag,
+
+		UnreachableRestartAfter:    wakeconfig.Duration(a.UnreachableRestartAfter),
+		UnreachableRestartCooldown: wakeconfig.Duration(a.UnreachableRestartCooldown),
 	}
 
 	if c.HealthPort == 0 {

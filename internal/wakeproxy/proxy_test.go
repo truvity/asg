@@ -773,3 +773,126 @@ func TestUnresolvableTargetIsOneConnectFailure(t *testing.T) {
 
 	waitFor(t, "connect failure", func() bool { return h.p.routes[0].m.connectFailures.Load() == 1 })
 }
+
+// refuseOnce dials a target that refuses and waits for the proxy to give up.
+func refuseOnce(t *testing.T, h *harness) {
+	t.Helper()
+
+	want := h.p.routes[0].m.connectFailures.Load() + 1
+
+	c, err := net.Dial("tcp", h.addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+
+	_, _ = c.Write([]byte("x"))
+	_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_, _ = c.Read(make([]byte, 1))
+
+	waitFor(t, "connect failure", func() bool { return h.p.routes[0].m.connectFailures.Load() >= want })
+}
+
+func runningButRefusing(t *testing.T) (*echoBackend, *fakeCloud, *harness) {
+	t.Helper()
+
+	b := newBackend(t) // running, but the port refuses
+	cloud := newCloud(StateRunning, 1)
+	cloud.stopPolls, cloud.startPolls = 2, 2
+
+	h := start(t, cloud, b, func(c *wakeconfig.Config, _ *Options) {
+		c.WakeTimeout = wakeconfig.Duration(300 * time.Millisecond)
+		c.UnreachableRestartAfter = wakeconfig.Duration(time.Minute)
+		c.UnreachableRestartCooldown = wakeconfig.Duration(30 * time.Minute)
+	})
+
+	cloud.mu.Lock()
+	cloud.insts[0].LaunchTime = h.clk.Now().Add(-time.Hour)
+	cloud.mu.Unlock()
+
+	return b, cloud, h
+}
+
+func TestRunningButRefusingTargetIsRestartedOnce(t *testing.T) {
+	b, cloud, h := runningButRefusing(t)
+
+	// First seen refusing: within the restart-after time, no restart.
+	refuseOnce(t, h)
+
+	if _, s := cloud.counts(); s != 0 {
+		t.Fatalf("stops %d before the restart-after time, want 0", s)
+	}
+
+	// Still refusing a minute later: stop, wait for stopped, start; the
+	// restarted target answers and the client gets through.
+	cloud.onRunning = b.open
+
+	h.clk.Advance(time.Minute)
+	roundTrip(t, h.addr, "after a restart")
+
+	if s, st := cloud.counts(); s != 1 || st != 1 {
+		t.Errorf("starts %d, stops %d; want one restart (1, 1)", s, st)
+	}
+
+	if got := h.p.routes[0].m.restarts.Load(); got != 1 {
+		t.Errorf("restarts %d, want 1", got)
+	}
+}
+
+func TestRestartIsNotRepeatedWithinTheCooldown(t *testing.T) {
+	_, cloud, h := runningButRefusing(t)
+
+	// The target comes back running but keeps refusing.
+	cloud.onRunning = func() {
+		cloud.insts[0].LaunchTime = h.clk.Now().Add(-time.Hour)
+	}
+
+	refuseOnce(t, h)
+	h.clk.Advance(time.Minute)
+	refuseOnce(t, h) // the restart
+
+	waitFor(t, "restart", func() bool { return h.p.routes[0].m.restarts.Load() == 1 })
+
+	// Running and refusing again, past the restart-after time but within
+	// the cooldown: no second restart however many clients try.
+	for range 3 {
+		refuseOnce(t, h)
+		h.clk.Advance(2 * time.Minute)
+	}
+
+	if got := h.p.routes[0].m.restarts.Load(); got != 1 {
+		t.Fatalf("restarts %d within the cooldown, want 1", got)
+	}
+
+	if _, s := cloud.counts(); s != 1 {
+		t.Fatalf("stops %d within the cooldown, want 1", s)
+	}
+
+	// After the cooldown, one more.
+	h.clk.Advance(30 * time.Minute)
+	refuseOnce(t, h)
+
+	waitFor(t, "second restart", func() bool { return h.p.routes[0].m.restarts.Load() == 2 })
+}
+
+func TestNormalBootIsNotRestarted(t *testing.T) {
+	b, cloud, h := runningButRefusing(t)
+
+	// Seen refusing for longer than restart-after, but launched less than
+	// restart-after ago: it is still booting, so no restart.
+	refuseOnce(t, h)
+	h.clk.Advance(2 * time.Minute)
+
+	cloud.mu.Lock()
+	cloud.insts[0].LaunchTime = h.clk.Now().Add(-30 * time.Second)
+	cloud.mu.Unlock()
+
+	refuseOnce(t, h)
+
+	b.open()
+	roundTrip(t, h.addr, "booted")
+
+	if _, s := cloud.counts(); s != 0 {
+		t.Errorf("stops %d during a boot, want 0", s)
+	}
+}

@@ -16,6 +16,8 @@ const (
 		"wake_proxy_connect_failures_total."
 	resolveHelp = "Lookups that matched zero or several instances, or failed, counted per attempt: a wake repeats the " +
 		"lookup every poll interval, so a transient describe error is counted each time it is retried."
+	restartHelp = "Times the proxy stopped a target that was running but refused its port for the restart-after time, " +
+		"to start it again; at most once per wake and per cooldown."
 	connectHelp = "Client connections the proxy gave up on: no target connection after the wake and every retry (wake " +
 		"timeout, wake failure, lookup that matched no or several instances). Once per client connection."
 )
@@ -31,6 +33,7 @@ type routeMetrics struct {
 	dialFailures    atomic.Int64
 	resolveFailures atomic.Int64
 	connectFailures atomic.Int64
+	restarts        atomic.Int64
 
 	mu          sync.Mutex
 	wakeSeconds float64
@@ -72,6 +75,8 @@ func writeMetrics(w io.Writer, routes map[string]*routeMetrics) {
 			func(m *routeMetrics) int64 { return m.resolveFailures.Load() }},
 		{"wake_proxy_connect_failures_total", "counter", connectHelp,
 			func(m *routeMetrics) int64 { return m.connectFailures.Load() }},
+		{"wake_proxy_restarts_total", "counter", restartHelp,
+			func(m *routeMetrics) int64 { return m.restarts.Load() }},
 	}
 
 	for _, s := range series {
