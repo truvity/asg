@@ -35,6 +35,15 @@ type route struct {
 	wake      *flight
 	lastTouch time.Time
 	lastID    string
+
+	// refusedID and refusedSince: the running target this proxy has seen
+	// refuse its port, and since when (zero once it answered or left
+	// running). lastRestart is the last unreachable restart; restartHeld
+	// says the cooldown hold was logged.
+	refusedID    string
+	refusedSince time.Time
+	lastRestart  time.Time
+	restartHeld  bool
 }
 
 func (r *route) now() time.Time { return r.p.opt.Now() }
@@ -238,6 +247,8 @@ func (r *route) connect(ctx context.Context, inst Instance) (net.Conn, error) {
 
 	if inst.State == StateRunning && inst.PrivateIP != "" {
 		if c, err := r.dial(ctx, r.addr(inst)); err == nil {
+			r.answered()
+
 			return c, nil
 		}
 	}
@@ -311,7 +322,10 @@ func (r *route) runWake(f *flight) {
 // wakeLoop drives the target to running with an accepting port. It returns
 // the address, and whether it started the instance itself.
 func (r *route) wakeLoop(ctx context.Context) (addr string, started bool, err error) {
-	var startedAt time.Time
+	var (
+		startedAt time.Time
+		restarted bool // at most one unreachable restart per wake
+	)
 
 	for {
 		wait := r.p.opt.PollInterval
@@ -332,11 +346,18 @@ func (r *route) wakeLoop(ctx context.Context) (addr string, started bool, err er
 					a := r.addr(inst)
 					if c, derr := r.dial(ctx, a); derr == nil {
 						_ = c.Close()
+						r.answered()
 
 						return a, started, nil
 					}
 				}
+
+				if !restarted && r.restartUnreachable(ctx, inst) {
+					restarted, wait = true, r.p.opt.PollInterval
+				}
 			case StateStopped:
+				r.answered()
+
 				if !started || r.now().Sub(startedAt) > r.p.opt.RestartAfter {
 					if serr := r.startInstance(ctx, inst.ID); serr != nil {
 						r.log.Warn("start failed; retrying", "instance", inst.ID, "error", serr)
@@ -347,6 +368,7 @@ func (r *route) wakeLoop(ctx context.Context) (addr string, started bool, err er
 					}
 				}
 			default: // pending, stopping: wait for the state to settle.
+				r.answered()
 			}
 		}
 
@@ -354,6 +376,74 @@ func (r *route) wakeLoop(ctx context.Context) (addr string, started bool, err er
 			return "", started, fmt.Errorf("%w (%s)", ErrWakeTimeout, r.p.cfg.WakeTimeout.D())
 		}
 	}
+}
+
+// answered forgets a refusal: the target answered, or is not running.
+func (r *route) answered() {
+	r.mu.Lock()
+	r.refusedID, r.refusedSince = "", time.Time{}
+	r.mu.Unlock()
+}
+
+// restartUnreachable stops a running target that refuses its port, so that
+// the wake loop starts it again once it is stopped. It acts only when this
+// proxy has seen the target refuse for UnreachableRestartAfter, the target
+// has run at least that long since its launch (a normal boot refuses for a
+// while), and the route's last such restart is older than the cooldown. It
+// reports whether it stopped the target.
+func (r *route) restartUnreachable(ctx context.Context, inst Instance) bool {
+	now := r.now()
+	after, cooldown := r.p.cfg.UnreachableRestartAfter.D(), r.p.cfg.UnreachableRestartCooldown.D()
+
+	r.mu.Lock()
+
+	if r.refusedID != inst.ID || r.refusedSince.IsZero() {
+		r.refusedID, r.refusedSince = inst.ID, now
+	}
+
+	refused, launched := now.Sub(r.refusedSince), time.Duration(0)
+	if !inst.LaunchTime.IsZero() {
+		launched = now.Sub(inst.LaunchTime)
+	}
+
+	if refused < after || (!inst.LaunchTime.IsZero() && launched < after) {
+		r.mu.Unlock()
+
+		return false
+	}
+
+	if last := r.lastRestart; !last.IsZero() && now.Sub(last) < cooldown {
+		held := r.restartHeld
+		r.restartHeld = true
+		r.mu.Unlock()
+
+		if !held {
+			r.log.Warn("restart held: target still refuses its port within the restart cooldown",
+				"instance", inst.ID, "refused_ms", refused.Milliseconds(), "last_restart", last.UTC().Format(time.RFC3339), "cooldown", cooldown.String())
+		}
+
+		return false
+	}
+
+	// Counted on the attempt, so a failing stop is not retried every poll.
+	r.lastRestart, r.restartHeld = now, false
+	r.refusedID, r.refusedSince = "", time.Time{}
+	r.mu.Unlock()
+
+	sctx, cancel := context.WithTimeout(ctx, r.p.opt.APITimeout)
+	defer cancel()
+
+	if err := r.p.cloud.Stop(sctx, inst.ID); err != nil {
+		r.log.Error("restart: stop failed", "instance", inst.ID, "error", err)
+
+		return false
+	}
+
+	r.m.restarts.Add(1)
+	r.log.Warn("restart: target running but refusing its port; stop requested, start follows once it is stopped",
+		"instance", inst.ID, "refused_ms", refused.Milliseconds(), "since_launch_ms", launched.Milliseconds())
+
+	return true
 }
 
 func (r *route) startInstance(ctx context.Context, id string) error {

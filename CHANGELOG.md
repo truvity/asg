@@ -5,6 +5,7 @@ them, and for anything breaking, what to do.
 
 ## Unreleased
 
+- **`cmd/wake-proxy` restarts a target that is running but refuses its port.** When a wake finds the target running and its port refusing, and this proxy has seen it refuse for `unreachableRestartAfter` while it has also run that long since its launch (a normal boot refuses for a while), the proxy stops it; the wake loop starts it again once it reads stopped, so a target whose service never came up (for example a unit that failed at boot) recovers without a person. At most one restart per wake and per `unreachableRestartCooldown` per route, so a target that never answers is not restarted in a loop; a held restart is logged once. Every restart is logged (warn) and counted in the new `wake_proxy_restarts_total{route}`. New config fields `unreachableRestartAfter` (default: `wakeTimeout`, 180s) and `unreachableRestartCooldown` (default 30m, at least `unreachableRestartAfter`); `modules/wakeproxy` gains `Args.UnreachableRestartAfter` and `Args.UnreachableRestartCooldown`. The rendered config now carries both defaults, so the proxy's user-data changes and a caller's proxy instance is refreshed on its next apply. The role already grants `ec2:StopInstances` on the targets. A minor bump (v0.10.0).
 - `github.com/klauspost/compress` v1.20.3, which fixes GO-2026-6865 (a panic decoding two-block frames).
 
 ## v0.9.1

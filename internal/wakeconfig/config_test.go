@@ -24,6 +24,10 @@ func TestDefaults(t *testing.T) {
 	if c.IdleTimeout.D() != 20*time.Minute || c.WakeTimeout.D() != 180*time.Second || c.ActivityTag != "wake-proxy/last-active" {
 		t.Errorf("defaults: %+v", c)
 	}
+
+	if c.UnreachableRestartAfter != c.WakeTimeout || c.UnreachableRestartCooldown.D() != 30*time.Minute {
+		t.Errorf("restart defaults: after %s, cooldown %s; want the wake timeout and 30m", c.UnreachableRestartAfter.D(), c.UnreachableRestartCooldown.D())
+	}
 }
 
 func TestRefusals(t *testing.T) {
@@ -37,6 +41,8 @@ func TestRefusals(t *testing.T) {
 		"bad wakeOn":     {strings.Replace(good, `"targetPort"`, `"wakeOn":"never","targetPort"`, 1), "wakeOn"},
 		"bad first byte": {strings.Replace(good, `"targetPort"`, `"firstByteTimeout":"-1s","targetPort"`, 1), "firstByteTimeout"},
 		"trailing":       {good + `{}`, "trailing"},
+		"short cooldown": {strings.Replace(good, `"routes"`, `"unreachableRestartAfter":"9m","unreachableRestartCooldown":"5m","routes"`, 1), "cooldown"},
+		"bad restart":    {strings.Replace(good, `"routes"`, `"unreachableRestartAfter":"-1s","routes"`, 1), "unreachableRestartAfter"},
 	} {
 		if _, err := wakeconfig.Parse([]byte(tc.in)); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: err %v, want %q", name, err, tc.want)

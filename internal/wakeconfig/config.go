@@ -28,6 +28,10 @@ const (
 	// DefaultFirstByteTimeout is how long a route waits for a client's first
 	// byte when it wakes on data.
 	DefaultFirstByteTimeout = 30 * time.Second
+
+	// DefaultUnreachableRestartCooldown is the least time between two
+	// restarts of one route's target.
+	DefaultUnreachableRestartCooldown = 30 * time.Minute
 )
 
 // Values of Route.WakeOn.
@@ -116,6 +120,14 @@ type Config struct {
 	// ActivityTag is the tag key on the target that carries the last
 	// activity time. Default wake-proxy/last-active.
 	ActivityTag string `json:"activityTag,omitempty"`
+	// UnreachableRestartAfter is how long a target may be running and
+	// refusing its port, as this proxy saw it and since its launch, before
+	// the proxy stops it and starts it again. Default: the wake timeout.
+	UnreachableRestartAfter Duration `json:"unreachableRestartAfter,omitempty"`
+	// UnreachableRestartCooldown is the least time between two such restarts
+	// of one route's target, so a target that never answers is not
+	// restarted in a loop. Default 30m.
+	UnreachableRestartCooldown Duration `json:"unreachableRestartCooldown,omitempty"`
 }
 
 // WithDefaults fills the zero values.
@@ -134,6 +146,14 @@ func (c Config) WithDefaults() Config {
 
 	if c.ActivityTag == "" {
 		c.ActivityTag = DefaultActivityTag
+	}
+
+	if c.UnreachableRestartAfter == 0 {
+		c.UnreachableRestartAfter = c.WakeTimeout
+	}
+
+	if c.UnreachableRestartCooldown == 0 {
+		c.UnreachableRestartCooldown = Duration(DefaultUnreachableRestartCooldown)
 	}
 
 	if c.Routes != nil {
@@ -179,6 +199,11 @@ func (c Config) Validate() error {
 
 	if c.IdleTimeout <= 0 || c.WakeTimeout <= 0 || c.ShutdownGrace <= 0 {
 		errs = append(errs, errors.New("idleTimeout, wakeTimeout and shutdownGrace must be positive"))
+	}
+
+	if c.UnreachableRestartAfter <= 0 || c.UnreachableRestartCooldown < c.UnreachableRestartAfter {
+		errs = append(errs, fmt.Errorf("unreachableRestartAfter %s and unreachableRestartCooldown %s: want a positive time and a cooldown at least as long",
+			c.UnreachableRestartAfter.D(), c.UnreachableRestartCooldown.D()))
 	}
 
 	if !portOK(c.HealthPort) {

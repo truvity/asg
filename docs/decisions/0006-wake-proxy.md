@@ -155,6 +155,15 @@ something that holds the connection open succeeds.
 - **The target never comes up** (a broken image, a missing key grant): the
   client is closed at the wake timeout and the wake is counted as failed; the
   next connection tries again.
+- **The target runs but its port never answers** (its service failed at
+  boot and will not come back by itself). Once this proxy has seen it refuse
+  for `unreachableRestartAfter` (default the wake timeout) and it has run at
+  least that long since its launch, the next wake stops it and starts it
+  again when it reads stopped: a stop and start, not a reboot, so the boot
+  runs again on a fresh host. At most once per wake and per
+  `unreachableRestartCooldown` (30m) per route, logged and counted in
+  `wake_proxy_restarts_total`; a target that still refuses after that waits
+  for a person, and the cooldown keeps the proxy from cycling it.
 - **Zero or several instances match the selector.** Nothing is started, the
   client is closed, the lookup failure is logged and counted. A replacement
   of the box in the middle of a wake can show two instances for a while; the
