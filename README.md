@@ -16,7 +16,8 @@ replaced rather than repaired.
   the set of resources. Shipped: `datavolume` (format once and mount a persistent EBS volume), `watchdog` (replace an instance whose local
   checks keep failing), `ssh` (opkssh and a fixed host key), `selfregister`
   (a DNS record for the in-service instance), `tunnel` (a Cloudflare
-  tunnel connector that starts only in service) and `ssmcert` (a TLS
+  tunnel connector that starts only in service), `wakeproxy` (the wake proxy
+  below, installed on an appliance) and `ssmcert` (a TLS
   certificate, key and CA from SSM into `/run`, with a nightly rotation that
   takes the box out of service through Standby while its daemon restarts).
 - **`bootstrap`** composes the user-data from fragments: systemd units,
@@ -177,9 +178,27 @@ and `composed_test.go` show a complete box made of a plan and modules. `Compat` 
 move onto this library without Pulumi replacing anything: it keeps the
 component type, the logical names and the layout the group was created with.
 
+## Platform part and company part
+
+**Platform part.** None. The library applies nothing by itself. The
+maintainers' platform repository calls it from its own Pulumi programs, for
+the shared network load balancer in front of boxes and for the CI builders.
+
+**Company part.** None applied from this repository. A company that runs a
+service on EC2 can call `asg.New` in a Pulumi program of its own, as in the
+worked example above. Its SRE applies that program by hand from the company's
+own nexus repository, under the company's limit role and inside the permission
+boundary the platform sets
+([delegation model](https://github.com/truvity/policy/blob/master/docs/delegation-model.md)).
+
 ## Consumers
 
-The status page box in truvity/observability (`pkg/statusbox/ec2`).
+- The status page box in truvity/observability (`pkg/statusbox/ec2`).
+- The router fleet in truvity/tailscale (`pkg/awsrouter`).
+- The Docker builders in truvity/ci-support (`pkg/buildkit/ec2`), with the
+  wake proxy.
+- The maintainers' platform repository: the shared network load balancer
+  (`front`) and the CI builders.
 
 ## Neighbours
 
@@ -203,12 +222,17 @@ over tracked files and runs in the gate, with no exception.
 ## Status
 
 `v0.x`: the API may change in a minor release, and every change is in the
-[CHANGELOG](CHANGELOG.md). v0.1.0 is the code that was `pkg/appliance` and
-`pkg/bootstrap` in truvity/aws-structure, moved without a behaviour change;
-v0.2.0 adds the `module` package and the first four modules, and changes two
-defaults (see the CHANGELOG); v0.3.0 adds `front`; v0.4.0 adds data volumes,
-several instance types, warm-pool reuse on scale-in, termination policies,
-module group actions and `ssmcert`.
+[CHANGELOG](CHANGELOG.md). The releases are listed on the
+[releases page](https://github.com/truvity/asg/releases). v0.1.0 is the code
+that was `pkg/appliance` and `pkg/bootstrap` in truvity/aws-structure, moved
+without a behaviour change; v0.2.0 adds the `module` package and the first
+four modules, and changes two defaults (see the CHANGELOG); v0.3.0 adds
+`front`; v0.4.0 adds data volumes, several instance types, warm-pool reuse on
+scale-in, termination policies, module group actions and `ssmcert`. Later
+releases add two `Compat` fields (v0.5.0), the one-instance mode with a data
+volume and the wake proxy (v0.6.0) and `front.Registry` (v0.7.0). From v0.8.0
+to v0.9.1 they fix the wake proxy and `Args.Single` and add a counter for the
+connections the wake proxy gave up on.
 
 ## Development
 
